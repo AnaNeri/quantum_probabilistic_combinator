@@ -11,9 +11,9 @@ Tests of quantum probabilistic combinator in haskell.
 * tests.hs
     * test 1    
         - check noise accumulation in circuit X vs circuit HZH 
-        - should show that more depth usually results in more noise         
+        - shows that more depth usually results in more noise         
     * test 2 
-        - check noise in circuit X with and without error correction bit flip error
+        - check noise in circuit X with and without error correction bit flip error (implementation uses DOI: [10.13140/RG.2.2.18542.77129](https://www.researchgate.net/publication/334634646_The_first_three-qubit_and_six-qubit_full_quantum_multiple_error-correcting_codes_with_low_quantum_costs?channel=doi&linkId=5d36ffe2a6fdcc370a57ac6a&showFulltext=true))
         - should allow to see that error correction reduces error
     * test 3 
         - quantamorphism with and without error correction to each qubit
