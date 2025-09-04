@@ -4,6 +4,9 @@ import Matrices
 import ProbabilisticCombinator
 import Data.Complex
 import qualified Data.Map as Map
+import System.IO (withFile, IOMode(WriteMode), hPutStrLn)
+import System.Directory (createDirectoryIfMissing)
+import Text.Printf (printf)
 
 -- matrices 
 runMatrixTests :: IO ()
@@ -21,7 +24,7 @@ runProbCombTests = do
 gateWithDepolarizing :: [[Complex Double]] -> [[Complex Double]] -> Double -> IO [[Complex Double]]
 gateWithDepolarizing gate state prob = do
     -- Apply the gate: U ρ U†
-    let state' = matMul gate state
+    let state' = matMul (matMul gate state) (dagger gate)
     -- Apply depolarizing noise: X, Y, Z with prob/3 each
     s1 <- quantumChoice x id_m (prob/3) state'
     s2 <- quantumChoice y id_m (prob/3) s1
@@ -104,6 +107,34 @@ test1 p s n = do
         ) counts
 
 -- test 2
+
+-- Projector for |0⟩ on a single qubit
+proj0 :: [[Complex Double]]
+proj0 = [[1 :+ 0, 0 :+ 0],
+         [0 :+ 0, 0 :+ 0]]
+
+-- Projector for |1⟩ on a single qubit
+proj1 :: [[Complex Double]]
+proj1 = [[0 :+ 0, 0 :+ 0],
+         [0 :+ 0, 1 :+ 0]]
+
+-- Build the projector for measuring qubit q in n-qubit system, for outcome 0 or 1
+buildProjector :: Int -> Int -> Int -> [[Complex Double]]
+buildProjector nQubits q outcome =
+    foldl1 tensor_prod [if i == q then (if outcome == 0 then proj0 else proj1) else id_m | i <- [0..nQubits-1]]
+
+-- Trace of a square matrix
+traceM :: [[Complex Double]] -> Complex Double
+traceM m = sum [m !! i !! i | i <- [0..length m - 1]]
+
+-- Measure density matrix s in qubit q, return counts for '0' and '1'
+measure :: [[Complex Double]] -> Int -> [(Char, Double)]
+measure s q =
+    let nQubits = round (logBase 2 (fromIntegral (length s)))
+        p0 = realPart $ traceM $ matMul (buildProjector nQubits q 0) s
+        p1 = realPart $ traceM $ matMul (buildProjector nQubits q 1) s
+    in [('0', p0), ('1', p1)]
+
 test2 :: Double -> [[Complex Double]] -> Int -> IO ()
 test2 p s n = do
     putStrLn $ "Test: X, with error X_p/3 ∘ Y_p/3 ∘ Z_p/3 with probability " ++ show p ++
@@ -112,76 +143,93 @@ test2 p s n = do
         s1 <- gateWithDepolarizing x s p
         return s1
         | _ <- [1..n]]
-    let rounded = map (roundMatrix 3) results
-        counts = Map.toList $ Map.fromListWith (+) [(show m, 1 :: Int) | m <- rounded]
-    putStrLn "Result Matrix | Count"
-    mapM_ (\(matStr, c) -> do
-        putStrLn $ show matStr ++ "Count: " ++ show c
-        ) counts
+    -- Present results as measurement statistics on qubit 0
+    let measured = map (`measure` 0) results
+        total0 = sum [p | [('0',p),('1',_)] <- measured]
+        total1 = sum [p | [('0',_),('1',p)] <- measured]
+        norm = total0 + total1
+    putStrLn "Measurement on qubit 0:"
+    putStrLn $ "'0': " ++ show (total0 / norm)
+    putStrLn $ "'1': " ++ show (total1 / norm)
+
     putStrLn $ "Test: X with bit-flip error correction, with error X_p/3 ∘ Y_p/3 ∘ Z_p/3 with probability " ++ show p ++
                ", initial state " ++ show (roundMatrix 2 s) ++ ", " ++ show n ++ " iterations"
     let n_qubits = 3
         s_n = extendToNQubits n_qubits s
-    putStrLn "\n--- Initial 3-qubit state s_n ---"
-    printMatrix (roundMatrix 3 s_n)
     results <- sequence [ do
-        putStrLn "\n--- Step 1: CX on qubits 0,1 ---"
         let cx1 = tensor_prod cx id_m
-        printMatrix cx1
         s1 <- gateWithDepInQubit cx1 s_n p [0,1]
-        putStrLn "State after CX1:"
-        printMatrix s1
-
-        putStrLn "\n--- Step 2: CX on qubits 0,2 ---"
         let cx2 = matMul (matMul (extendSWAP 1 3) (tensor_prod cx id_m)) (extendSWAP 1 3)
-        printMatrix cx2
         s2 <- gateWithDepInQubit cx2 s1 p [0,2]
-        putStrLn "State after CX2:"
-        printMatrix (roundMatrix 3 s2)
-
-        putStrLn "\n--- Step 3: X⊗X⊗X ---"
         let xxx = tensor_prod (tensor_prod x x) x
-        printMatrix xxx
         s3 <- gateWithDepInQubit xxx s2 p [0,1,2]
-        putStrLn "State after XXX:"
-        printMatrix (roundMatrix 3 s3)
-
-        putStrLn "\n--- Step 4: CX on qubits 0,1 ---"
         let cx1 = tensor_prod cx id_m
-        printMatrix cx1
         s4 <- gateWithDepInQubit cx1 s3 p [0,1]
-        putStrLn "State after CX1 (again):"
-        printMatrix (roundMatrix 3 s4)
-
-        putStrLn "\n--- Step 5: CX on qubits 0,2 ---"
         let cx2 = matMul (matMul (extendSWAP 1 3) (tensor_prod cx id_m)) (extendSWAP 1 3)
-        printMatrix cx2
         s5 <- gateWithDepInQubit cx2 s4 p [0,2]
-        putStrLn "State after CX2 (again):"
-        printMatrix (roundMatrix 3 s5)
-
-        putStrLn "\n--- Step 6: Toffoli (CCX) ---"
         let invccx = matMul (matMul (matMul (extendSWAP 0 3) (extendSWAP 1 3)) ccx) (matMul (extendSWAP 0 3) (extendSWAP 1 3))
-        printMatrix invccx
         s6 <- gateWithDepInQubit invccx s5 p [0,1,2]
-        putStrLn "State after Toffoli (CCX):"
-        printMatrix (roundMatrix 3 s6)
-
         return s6
         | _ <- [1..n]]
-    let rounded = map (roundMatrix 3) results
-        counts = Map.toList $ Map.fromListWith (+) [(show m, 1 :: Int) | m <- rounded]
-    putStrLn "Result Matrix | Count"
-    mapM_ (\(matStr, c) -> do
-        putStrLn $ show matStr ++ "Count: " ++ show c
-        ) counts
+    let measured = map (`measure` 0) results
+        total0 = sum [p | [('0',p),('1',_)] <- measured]
+        total1 = sum [p | [('0',_),('1',p)] <- measured]
+        norm = total0 + total1
+    putStrLn "Measurement on qubit 0:"
+    putStrLn $ "'0': " ++ show (total0 / norm)
+    putStrLn $ "'1': " ++ show (total1 / norm)
 
--- test 3
+runTest2Sweep :: Int -> String -> IO ()
+runTest2Sweep nTest idOfTest = do
+    let ps = [0.4,0.395..0.001]
+        dir = "./data"
+        fname = dir ++ "/out_test2_" ++ show nTest ++ "_" ++ idOfTest ++ ".csv"
+    createDirectoryIfMissing True dir
+    withFile fname WriteMode $ \h -> do
+        hPutStrLn h "prob_error,1_no_corr,0_no_corr,1_corr,0_corr"
+        mapM_ (\p -> do
+            putStrLn $ "Running test2 for p = " ++ show p
+            -- X without correction
+            resultsNoCorr <- sequence [gateWithDepolarizing x excited_state_density p | _ <- [1..nTest]]
+            let measuredNoCorr = map (`measure` 0) resultsNoCorr
+                total0_no_corr = sum [v | [('0',v),('1',_)] <- measuredNoCorr]
+                total1_no_corr = sum [v | [('0',_),('1',v)] <- measuredNoCorr]
+                norm_no_corr = total0_no_corr + total1_no_corr
+                p0_no_corr = if norm_no_corr == 0 then 0 else total0_no_corr / norm_no_corr
+                p1_no_corr = if norm_no_corr == 0 then 0 else total1_no_corr / norm_no_corr
+            -- X with correction
+            let n_qubits = 3
+                s_n = extendToNQubits n_qubits excited_state_density
+            resultsCorr <- sequence [ do
+                let cx1 = tensor_prod cx id_m
+                s1 <- gateWithDepInQubit cx1 s_n p [0,1]
+                let cx2 = matMul (matMul (extendSWAP 1 3) (tensor_prod cx id_m)) (extendSWAP 1 3)
+                s2 <- gateWithDepInQubit cx2 s1 p [0,2]
+                let xxx = tensor_prod (tensor_prod x x) x
+                s3 <- gateWithDepInQubit xxx s2 p [0,1,2]
+                let cx1 = tensor_prod cx id_m
+                s4 <- gateWithDepInQubit cx1 s3 p [0,1]
+                let cx2 = matMul (matMul (extendSWAP 1 3) (tensor_prod cx id_m)) (extendSWAP 1 3)
+                s5 <- gateWithDepInQubit cx2 s4 p [0,2]
+                let invccx = matMul (matMul (matMul (extendSWAP 0 3) (extendSWAP 1 3)) ccx) (matMul (extendSWAP 0 3) (extendSWAP 1 3))
+                s6 <- gateWithDepInQubit invccx s5 p [0,1,2]
+                return s6
+                | _ <- [1..nTest]]
+            let measuredCorr = map (`measure` 0) resultsCorr
+                total0_corr = sum [v | [('0',v),('1',_)] <- measuredCorr]
+                total1_corr = sum [v | [('0',_),('1',v)] <- measuredCorr]
+                norm_corr = total0_corr + total1_corr
+                p0_corr = if norm_corr == 0 then 0 else total0_corr / norm_corr
+                p1_corr = if norm_corr == 0 then 0 else total1_corr / norm_corr
+            hPutStrLn h $ printf "%.5f,%.8f,%.8f,%.8f,%.8f" p p1_no_corr p0_no_corr p1_corr p0_corr
+            ) ps
+    putStrLn $ "Results saved to " ++ fname
 
 main :: IO()
 main = do 
     --runMatrixTests
     --runProbCombTests
     --test1 0.1 ground_state_density 1000
-    test2 1.0 excited_state_density 1
+    --test2 0.01 excited_state_density 100
+    runTest2Sweep 1500 "003"
 
