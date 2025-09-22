@@ -7,6 +7,7 @@ import qualified Data.Map as Map
 import System.IO (withFile, IOMode(WriteMode), hPutStrLn)
 import System.Directory (createDirectoryIfMissing)
 import Text.Printf (printf)
+import System.Environment (getArgs)
 
 -- matrices 
 runMatrixTests :: IO ()
@@ -58,7 +59,6 @@ gateWithDepInQubit gate state prob qubitsList = do
     s4 <- quantumChoice (buildNoiseOp z) idN (prob/3) s3
     return s4
 
-
 -- Extend a single-qubit state to n qubits (all others in |0⟩)
 extendToNQubits :: Int -> [[Complex Double]] -> [[Complex Double]]
 extendToNQubits n s
@@ -76,7 +76,10 @@ extendSWAP n nQubits
       | i == n       = swap : buildOps (i+2)  -- place swap at position n (acts on n and n+1), skip n+1
       | otherwise    = id_m : buildOps (i+1)  -- identity elsewhere
 
--- test 1
+-- test 1 ---------------------------------------------------------------------------
+-- different implementation of the same system may have different noise
+-- X = HZH theoretically but the noise depends on circuit's depth 
+-------------------------------------------------------------------------------------
 test1 :: Double -> [[Complex Double]] -> Int -> IO ()
 test1 p s n = do
     putStrLn $ "Test: X, with error X_p/3 ∘ Y_p/3 ∘ Z_p/3 with probability " ++ show p ++
@@ -106,7 +109,12 @@ test1 p s n = do
         putStrLn $ show matStr ++ "Count: " ++ show c
         ) counts
 
--- test 2
+-- test 2 -----------------------------------------------------------------
+-- X vs X with bit-flip error correction scheme
+-- bit-flip is not enough for error correction of faulty gates
+-- may be helpful if it is in noise transmission, 
+-- where correction gates have less noise than the working system
+--------------------------------------------------------------------------- 
 
 -- Projector for |0⟩ on a single qubit
 proj0 :: [[Complex Double]]
@@ -202,17 +210,17 @@ runTest2Sweep nTest idOfTest = do
                 s_n = extendToNQubits n_qubits excited_state_density
             resultsCorr <- sequence [ do
                 let cx1 = tensor_prod cx id_m
-                s1 <- gateWithDepInQubit cx1 s_n p [0,1]
+                s1 <- gateWithDepInQubit cx1 s_n (p*0.25) [0,1]
                 let cx2 = matMul (matMul (extendSWAP 1 3) (tensor_prod cx id_m)) (extendSWAP 1 3)
-                s2 <- gateWithDepInQubit cx2 s1 p [0,2]
+                s2 <- gateWithDepInQubit cx2 s1 (p*0.25) [0,2]
                 let xxx = tensor_prod (tensor_prod x x) x
                 s3 <- gateWithDepInQubit xxx s2 p [0,1,2]
                 let cx1 = tensor_prod cx id_m
-                s4 <- gateWithDepInQubit cx1 s3 p [0,1]
+                s4 <- gateWithDepInQubit cx1 s3 (p*0.25) [0,1]
                 let cx2 = matMul (matMul (extendSWAP 1 3) (tensor_prod cx id_m)) (extendSWAP 1 3)
-                s5 <- gateWithDepInQubit cx2 s4 p [0,2]
+                s5 <- gateWithDepInQubit cx2 s4 (p*0.25) [0,2]
                 let invccx = matMul (matMul (matMul (extendSWAP 0 3) (extendSWAP 1 3)) ccx) (matMul (extendSWAP 0 3) (extendSWAP 1 3))
-                s6 <- gateWithDepInQubit invccx s5 p [0,1,2]
+                s6 <- gateWithDepInQubit invccx s5 (p*0.25) [0,1,2]
                 return s6
                 | _ <- [1..nTest]]
             let measuredCorr = map (`measure` 0) resultsCorr
@@ -225,11 +233,49 @@ runTest2Sweep nTest idOfTest = do
             ) ps
     putStrLn $ "Results saved to " ++ fname
 
+-- test 3 ---------------------------------------------------------------
+
+test3 :: Double -> [[Complex Double]] -> Int -> IO ()
+test3 p s n = do 
+    putStrLn $ "Test: X, with error X_p/3 ∘ Y_p/3 ∘ Z_p/3 with probability " ++ show p ++
+               ", initial state " ++ show (roundMatrix 2 s) ++ ", " ++ show n ++ " iterations"
+    let expected = matMul (matMul x s) (dagger x)
+    results <- sequence [gateWithDepolarizing x s p | _ <- [1..n]]
+    -- Present results as measurement statistics on qubit 0
+    let measured = map (`measure` 0) results
+        total0 = sum [p | [('0',p),('1',_)] <- measured]
+        total1 = sum [p | [('0',_),('1',p)] <- measured]
+        norm = total0 + total1
+    putStrLn "Measurement on qubit 0:"
+    putStrLn $ "'0': " ++ show (total0 / norm)
+    putStrLn $ "'1': " ++ show (total1 / norm)
+    -- Fidelity
+    let fidelities = [fidelity s1 expected | s1 <- results]
+        avgFid = sum fidelities / fromIntegral n
+    putStrLn $ "Average fidelity with expected state: " ++ show avgFid
+
+-- Helper for fidelity
+fidelity :: [[Complex Double]] -> [[Complex Double]] -> Double
+fidelity rho sigma = realPart $ traceM $ matMul rho sigma
+
 main :: IO()
 main = do 
-    --runMatrixTests
-    --runProbCombTests
-    --test1 0.1 ground_state_density 1000
-    --test2 0.01 excited_state_density 100
-    runTest2Sweep 1500 "003"
+    args <- getArgs
+    case args of
+      ["test1", pStr, nStr] -> 
+        let p = read pStr
+            n = read nStr
+        in test1 p excited_state_density n
+      ["test2", pStr, nStr] -> 
+        let p = read pStr
+            n = read nStr
+        in test2 p excited_state_density n
+      ["test3", pStr, nStr] -> 
+        let p = read pStr
+            n = read nStr
+        in test3 p excited_state_density n
+      ["runTest2Sweep", nStr, idStr] ->
+        let n = read nStr
+        in runTest2Sweep n idStr
+      _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2 <prob> <n>\n  test3 <prob> <n>\n  runTest2Sweep <nTest> <idOfTest>"
 
