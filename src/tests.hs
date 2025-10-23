@@ -36,28 +36,24 @@ gateWithDepolarizing gate state prob = do
 identityN :: Int -> [[Complex Double]]
 identityN n = foldl1 tensor_prod (replicate n id_m)
 
--- Helper: apply a single-qubit depolarizing channel to qubit k in an n-qubit system
-applyDepolarizingToQubit :: Int -> Double -> [[Complex Double]] -> IO [[Complex Double]]
-applyDepolarizingToQubit k p state = do
+-- Helper: apply a single-qubit bit-flip channel to qubit k in an n-qubit system
+applyBitFlipToQubit :: Int -> Double -> [[Complex Double]] -> IO [[Complex Double]]
+applyBitFlipToQubit k p state = do
     -- Build X, Y, Z acting on qubit k (tensor with id_m elsewhere)
     let n = round (logBase 2 (fromIntegral (length state))) -- number of qubits
         opOnQubit op = foldl1 tensor_prod [if i == k then op else id_m | i <- [0..n-1]]
-    s1 <- quantumChoice (opOnQubit x) id_m (p/3) state
-    s2 <- quantumChoice (opOnQubit y) id_m (p/3) s1
-    s3 <- quantumChoice (opOnQubit z) id_m (p/3) s2
-    return s3
+    s1 <- quantumChoice (opOnQubit x) id_m (p) state
+    return s1
 
--- General function: apply gate, then depolarizing noise only to qubits in qubitsList
-gateWithDepInQubit :: [[Complex Double]] -> [[Complex Double]] -> Double -> [Int] -> IO [[Complex Double]]
-gateWithDepInQubit gate state prob qubitsList = do
+-- General function: apply gate, then bit-flip noise only to qubits in qubits List
+gateWithBFInQubit :: [[Complex Double]] -> [[Complex Double]] -> Double -> [Int] -> IO [[Complex Double]]
+gateWithBFInQubit gate state prob qubitsList = do
     let n = round (logBase 2 (fromIntegral (length state)))
         buildNoiseOp op = foldl1 tensor_prod [if i `elem` qubitsList then op else id_m | i <- [0..n-1]]
         idN = identityN n
     let s1 = matMul (matMul gate state) (dagger gate)
-    s2 <- quantumChoice (buildNoiseOp x) idN (prob/3) s1
-    s3 <- quantumChoice (buildNoiseOp y) idN (prob/3) s2
-    s4 <- quantumChoice (buildNoiseOp z) idN (prob/3) s3
-    return s4
+    s2 <- quantumChoice (buildNoiseOp x) idN (prob) s1
+    return s2
 
 -- Extend a single-qubit state to n qubits (all others in |0⟩)
 extendToNQubits :: Int -> [[Complex Double]] -> [[Complex Double]]
@@ -166,17 +162,17 @@ test2 p s n = do
         s_n = extendToNQubits n_qubits s
     results <- sequence [ do
         let cx1 = tensor_prod cx id_m
-        s1 <- gateWithDepInQubit cx1 s_n p [0,1]
+        s1 <- gateWithBFInQubit cx1 s_n p [0,1]
         let cx2 = matMul (matMul (extendSWAP 1 3) (tensor_prod cx id_m)) (extendSWAP 1 3)
-        s2 <- gateWithDepInQubit cx2 s1 p [0,2]
+        s2 <- gateWithBFInQubit cx2 s1 p [0,2]
         let xxx = tensor_prod (tensor_prod x x) x
-        s3 <- gateWithDepInQubit xxx s2 p [0,1,2]
+        s3 <- gateWithBFInQubit xxx s2 p [0,1,2]
         let cx1 = tensor_prod cx id_m
-        s4 <- gateWithDepInQubit cx1 s3 p [0,1]
+        s4 <- gateWithBFInQubit cx1 s3 p [0,1]
         let cx2 = matMul (matMul (extendSWAP 1 3) (tensor_prod cx id_m)) (extendSWAP 1 3)
-        s5 <- gateWithDepInQubit cx2 s4 p [0,2]
+        s5 <- gateWithBFInQubit cx2 s4 p [0,2]
         let invccx = matMul (matMul (matMul (extendSWAP 0 3) (extendSWAP 1 3)) ccx) (matMul (extendSWAP 0 3) (extendSWAP 1 3))
-        s6 <- gateWithDepInQubit invccx s5 p [0,1,2]
+        s6 <- gateWithBFInQubit invccx s5 p [0,1,2]
         return s6
         | _ <- [1..n]]
     let measured = map (`measure` 0) results
@@ -187,11 +183,11 @@ test2 p s n = do
     putStrLn $ "'0': " ++ show (total0 / norm)
     putStrLn $ "'1': " ++ show (total1 / norm)
 
-runTest2Sweep :: Int -> String -> IO ()
-runTest2Sweep nTest idOfTest = do
+runTest2Sweep :: Int -> String -> Double -> IO ()
+runTest2Sweep nTest idOfTest decreaseProb = do
     let ps = [0.4,0.395..0.001]
         dir = "./data"
-        fname = dir ++ "/out_test2_" ++ show nTest ++ "_" ++ idOfTest ++ ".csv"
+        fname = dir ++ "/out_test2_" ++ show nTest ++ "_" ++ idOfTest ++ "_" ++ show decreaseProb ++ ".csv"
     createDirectoryIfMissing True dir
     withFile fname WriteMode $ \h -> do
         hPutStrLn h "prob_error,1_no_corr,0_no_corr,1_corr,0_corr"
@@ -210,17 +206,17 @@ runTest2Sweep nTest idOfTest = do
                 s_n = extendToNQubits n_qubits excited_state_density
             resultsCorr <- sequence [ do
                 let cx1 = tensor_prod cx id_m
-                s1 <- gateWithDepInQubit cx1 s_n (p*0.25) [0,1]
+                s1 <- gateWithBFInQubit cx1 s_n (p*(1-decreaseProb)) [0,1]
                 let cx2 = matMul (matMul (extendSWAP 1 3) (tensor_prod cx id_m)) (extendSWAP 1 3)
-                s2 <- gateWithDepInQubit cx2 s1 (p*0.25) [0,2]
+                s2 <- gateWithBFInQubit cx2 s1 (p*(1-decreaseProb)) [0,2]
                 let xxx = tensor_prod (tensor_prod x x) x
-                s3 <- gateWithDepInQubit xxx s2 p [0,1,2]
+                s3 <- gateWithBFInQubit xxx s2 p [0,1,2]
                 let cx1 = tensor_prod cx id_m
-                s4 <- gateWithDepInQubit cx1 s3 (p*0.25) [0,1]
+                s4 <- gateWithBFInQubit cx1 s3 (p*(1-decreaseProb)) [0,1]
                 let cx2 = matMul (matMul (extendSWAP 1 3) (tensor_prod cx id_m)) (extendSWAP 1 3)
-                s5 <- gateWithDepInQubit cx2 s4 (p*0.25) [0,2]
+                s5 <- gateWithBFInQubit cx2 s4 (p*(1-decreaseProb)) [0,2]
                 let invccx = matMul (matMul (matMul (extendSWAP 0 3) (extendSWAP 1 3)) ccx) (matMul (extendSWAP 0 3) (extendSWAP 1 3))
-                s6 <- gateWithDepInQubit invccx s5 (p*0.25) [0,1,2]
+                s6 <- gateWithBFInQubit invccx s5 (p*(1-decreaseProb)) [0,1,2]
                 return s6
                 | _ <- [1..nTest]]
             let measuredCorr = map (`measure` 0) resultsCorr
@@ -274,8 +270,9 @@ main = do
         let p = read pStr
             n = read nStr
         in test3 p excited_state_density n
-      ["runTest2Sweep", nStr, idStr] ->
+      ["runTest2Sweep", nStr, idStr, dpStr] ->
         let n = read nStr
-        in runTest2Sweep n idStr
-      _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2 <prob> <n>\n  test3 <prob> <n>\n  runTest2Sweep <nTest> <idOfTest>"
+            dp = read dpStr :: Double
+        in runTest2Sweep n idStr dp
+      _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2 <prob> <n>\n  test3 <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>"
 
