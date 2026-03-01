@@ -2,12 +2,18 @@ module Main where
 
 import Matrices
 import ProbabilisticCombinator
+import DensityMatrices
+import Utils
+import Distance
+import Quantamorphism
+import Noise
 import Data.Complex
 import qualified Data.Map as Map
 import System.IO (withFile, IOMode(WriteMode), hPutStrLn)
 import System.Directory (createDirectoryIfMissing)
 import Text.Printf (printf)
 import System.Environment (getArgs)
+import Data.Time (getCurrentTime, formatTime, defaultTimeLocale)
 
 -- matrices 
 runMatrixTests :: IO ()
@@ -20,57 +26,6 @@ runProbCombTests :: IO ()
 runProbCombTests = do
     putStrLn "\n=== Probabilistic Combinator Tests ==="
     test_prob_comb
-
--- gate with depolarising noise
-gateWithDepolarizing :: [[Complex Double]] -> [[Complex Double]] -> Double -> IO [[Complex Double]]
-gateWithDepolarizing gate state prob = do
-    -- Apply the gate: U ρ U†
-    let state' = matMul (matMul gate state) (dagger gate)
-    -- Apply depolarizing noise: X, Y, Z with prob/3 each
-    s1 <- quantumChoice x id_m (prob/3) state'
-    s2 <- quantumChoice y id_m (prob/3) s1
-    s3 <- quantumChoice z id_m (prob/3) s2
-    return s3
-
--- n-qubit identity matrix
-identityN :: Int -> [[Complex Double]]
-identityN n = foldl1 tensor_prod (replicate n id_m)
-
--- Helper: apply a single-qubit bit-flip channel to qubit k in an n-qubit system
-applyBitFlipToQubit :: Int -> Double -> [[Complex Double]] -> IO [[Complex Double]]
-applyBitFlipToQubit k p state = do
-    -- Build X, Y, Z acting on qubit k (tensor with id_m elsewhere)
-    let n = round (logBase 2 (fromIntegral (length state))) -- number of qubits
-        opOnQubit op = foldl1 tensor_prod [if i == k then op else id_m | i <- [0..n-1]]
-    s1 <- quantumChoice (opOnQubit x) id_m (p) state
-    return s1
-
--- General function: apply gate, then bit-flip noise only to qubits in qubits List
-gateWithBFInQubit :: [[Complex Double]] -> [[Complex Double]] -> Double -> [Int] -> IO [[Complex Double]]
-gateWithBFInQubit gate state prob qubitsList = do
-    let n = round (logBase 2 (fromIntegral (length state)))
-        buildNoiseOp op = foldl1 tensor_prod [if i `elem` qubitsList then op else id_m | i <- [0..n-1]]
-        idN = identityN n
-    let s1 = matMul (matMul gate state) (dagger gate)
-    s2 <- quantumChoice (buildNoiseOp x) idN (prob) s1
-    return s2
-
--- Extend a single-qubit state to n qubits (all others in |0⟩)
-extendToNQubits :: Int -> [[Complex Double]] -> [[Complex Double]]
-extendToNQubits n s
-    | n <= 1    = s
-    | otherwise = foldl (\acc _ -> tensor_prod acc ground_state_density) s [2..n]
-
-extendSWAP :: Int -> Int -> [[Complex Double]]
-extendSWAP n nQubits
-    | n < 0 || n+1 >= nQubits = error "extendSWAP: invalid qubit indices"
-    | otherwise = foldl1 tensor_prod ops
-  where
-    ops = buildOps 0
-    buildOps i
-      | i >= nQubits = []
-      | i == n       = swap : buildOps (i+2)  -- place swap at position n (acts on n and n+1), skip n+1
-      | otherwise    = id_m : buildOps (i+1)  -- identity elsewhere
 
 -- test 1 ---------------------------------------------------------------------------
 -- different implementation of the same system may have different noise
@@ -111,33 +66,6 @@ test1 p s n = do
 -- may be helpful if it is in noise transmission, 
 -- where correction gates have less noise than the working system
 --------------------------------------------------------------------------- 
-
--- Projector for |0⟩ on a single qubit
-proj0 :: [[Complex Double]]
-proj0 = [[1 :+ 0, 0 :+ 0],
-         [0 :+ 0, 0 :+ 0]]
-
--- Projector for |1⟩ on a single qubit
-proj1 :: [[Complex Double]]
-proj1 = [[0 :+ 0, 0 :+ 0],
-         [0 :+ 0, 1 :+ 0]]
-
--- Build the projector for measuring qubit q in n-qubit system, for outcome 0 or 1
-buildProjector :: Int -> Int -> Int -> [[Complex Double]]
-buildProjector nQubits q outcome =
-    foldl1 tensor_prod [if i == q then (if outcome == 0 then proj0 else proj1) else id_m | i <- [0..nQubits-1]]
-
--- Trace of a square matrix
-traceM :: [[Complex Double]] -> Complex Double
-traceM m = sum [m !! i !! i | i <- [0..length m - 1]]
-
--- Measure density matrix s in qubit q, return counts for '0' and '1'
-measure :: [[Complex Double]] -> Int -> [(Char, Double)]
-measure s q =
-    let nQubits = round (logBase 2 (fromIntegral (length s)))
-        p0 = realPart $ traceM $ matMul (buildProjector nQubits q 0) s
-        p1 = realPart $ traceM $ matMul (buildProjector nQubits q 1) s
-    in [('0', p0), ('1', p1)]
 
 test2 :: Double -> [[Complex Double]] -> Int -> IO ()
 test2 p s n = do
@@ -230,6 +158,8 @@ runTest2Sweep nTest idOfTest decreaseProb = do
     putStrLn $ "Results saved to " ++ fname
 
 -- test 3 ---------------------------------------------------------------
+-- Fidelity calculation
+-----------------------------------------------------------------------
 
 test3 :: Double -> [[Complex Double]] -> Int -> IO ()
 test3 p s n = do 
@@ -250,10 +180,72 @@ test3 p s n = do
         avgFid = sum fidelities / fromIntegral n
     putStrLn $ "Average fidelity with expected state: " ++ show avgFid
 
--- Helper for fidelity
-fidelity :: [[Complex Double]] -> [[Complex Double]] -> Double
-fidelity rho sigma = realPart $ traceM $ matMul rho sigma
+-- test 4 ----------------------------------------------------------------
+-- test quantamorphism with noise
+-- target qubit is qubit 0, the control qubits are qubit 1 and 2
+-- qubit 3 is an ancilla qubit.
+-- M is Z gate and the number of controls is k = 2
+-- noise probability of each gate has phase flip is 0.05%
+--------------------------------------------------------------------------
 
+test4a :: IO()
+test4a = do
+    putStrLn "Test 4: Quantummorphism with noise, without error correction"
+    let p = 0.05
+    let n_qubits = 6
+    let s_n = extendToNQubits n_qubits projPlus
+    -- Get current date/time for unique file id
+    t <- getCurrentTime
+    let timeStr = formatTime defaultTimeLocale "%Y%m%d%H%M%S" t
+        fname = "./data/out_test4a_" ++ show p ++ "_" ++ timeStr ++ ".csv"
+    createDirectoryIfMissing True "./data"
+    -- initial state |+⟩|0⟩|0⟩|0⟩
+    res_ideal <- quantamorphism_b0_n2 0 projPlus n_qubits (-1)
+    withFile fname WriteMode $ \h -> do
+        hPutStrLn h "fidelity"
+        fidelity_with_noise <- sequence [
+            do
+                res_with_noise <- quantamorphism_b0_n2 p projPlus n_qubits (-1)
+                let fid_res_with_noise = fidelity_density res_with_noise res_ideal
+                hPutStrLn h (show fid_res_with_noise)
+                putStrLn $ "Fidelity of run with noise: " ++ show fid_res_with_noise
+                return fid_res_with_noise
+            | _ <- [1..100]
+            ]
+        return ()
+    putStrLn $ "Fidelity results saved to " ++ fname
+
+test4b :: IO()
+test4b = do
+    putStrLn "Test 4b: Quantummorphism with noise and error correction"
+    let p = 0.05   
+    let n_qubits = 6
+    let s_n = extendToNQubits n_qubits projPlus
+    -- Get current date/time for unique file id
+    t <- getCurrentTime
+    let timeStr = formatTime defaultTimeLocale "%Y%m%d%H%M%S" t
+        fname = "./data/out_test4b_" ++ show p ++ "_" ++ timeStr ++ ".csv"
+    createDirectoryIfMissing True "./data"
+    putStrLn $ "Start ideal run"
+    res_ideal <- quantamorphism_b0_n2 0 projPlus n_qubits 0
+    withFile fname WriteMode $ \h -> do
+        hPutStrLn h "fidelity_full,fidelity_partial"
+        fidelity_with_correction <- sequence [
+            do
+                putStrLn $ "Start run with correction, noise probability: " ++ show p
+                res_with_correction <- quantamorphism_b0_n2_wcorrection p projPlus 0
+                let fid_full = fidelity_density res_with_correction res_ideal
+                    fid_partial = fidelityQubits res_with_correction res_ideal [0] n_qubits
+                hPutStrLn h $ show fid_full ++ "," ++ show fid_partial
+                putStrLn $ "Fidelity of run with correction (full): " ++ show fid_full
+                putStrLn $ "Fidelity of run with correction (qubits 0-3): " ++ show fid_partial
+                return fid_partial
+            | _ <- [1..100]
+            ]
+        return ()
+    putStrLn $ "Fidelity results saved to " ++ fname
+        
+--------------------------------------------------------------------------
 main :: IO()
 main = do 
     args <- getArgs
@@ -274,5 +266,9 @@ main = do
         let n = read nStr
             dp = read dpStr :: Double
         in runTest2Sweep n idStr dp
-      _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2 <prob> <n>\n  test3 <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>"
+      ["test4a"] ->
+        test4a
+      ["test4b"] ->
+        test4b
+      _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2 <prob> <n>\n  test3 <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>\n  test4a \n  test4b"
 

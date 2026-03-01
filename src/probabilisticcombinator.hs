@@ -2,8 +2,6 @@ module ProbabilisticCombinator (
     choice,
     quantumChoice,
     roundMatrix,
-    ground_state_density,
-    excited_state_density,
     test_prob_comb
 ) where
 
@@ -13,6 +11,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Complex (Complex(..))
 
+import DensityMatrices 
 
 -- Probabilistic combinator: applies f with probability p, g with probability 1-p
 choice :: (a -> a) -> (a -> a) -> Double -> a -> IO a
@@ -38,13 +37,6 @@ addOne x = x + 1
 
 subtractOne :: Int -> Int
 subtractOne x = x - 1
-
-ground_state_density :: Num a => [[a]]
-ground_state_density = [[1, 0],
-                        [0, 0]]
-excited_state_density :: Num a => [[a]]
-excited_state_density = [[0, 0],
-                        [0, 1]]
 
 -- Helper to round a complex number to n decimal places
 roundComplex :: Int -> Complex Double -> Complex Double

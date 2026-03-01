@@ -5,12 +5,26 @@ build-type:          Simple
 
 library
   exposed-modules:     Matrices, ProbabilisticCombinator
+  other-modules:
+    DensityMatrices
+    HMatrixBridge
   hs-source-dirs:      src
-  build-depends:       base >=4.14 && <5, containers, matrix, random
+  build-depends:       base >=4.14 && <5, containers, matrix, random, hmatrix
+                      , deepseq
   default-language:    Haskell2010
 
 executable tests
   main-is:             tests.hs
   hs-source-dirs:      src
-  build-depends:       base >=4.14 && <5, containers, directory, matrix, random, QuantumProbabilisticCombinators
+  other-modules:
+    DensityMatrices
+    HMatrixBridge
+    HCore
+    Distance
+    Matrices
+    Noise
+    ProbabilisticCombinator
+    Quantamorphism
+    Utils
+  build-depends:       base >=4.14 && <5, containers, directory, matrix, random, hmatrix, QuantumProbabilisticCombinators, deepseq, time
   default-language:    Haskell2010

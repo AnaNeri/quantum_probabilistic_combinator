@@ -6,15 +6,22 @@ module Matrices (
     dagger,
     tensor_prod,
     printMatrix,
-    h, x, y, z, id_m, cx, ccx, cu3, swap,
-    test_matrices
+    h, x, y, z, id_m, cx, cz, ccx, cu3, swap,
+    test_matrices,
+    traceM,
+    sqrtm
 ) where
 
 import Data.Complex
 import Data.List (transpose)
-import Data.Matrix (identity, toLists)
+import qualified Data.Matrix as DM (identity, toLists)
+import qualified Numeric.LinearAlgebra as LA
+import qualified HCore as HC
 
 type Matrix = [[Complex Double]]
+
+-- Use conversions from HCore to centralize hmatrix usage
+-- toHMatrix/fromHMatrix provided by HCore as HC.toHMatrix/HC.fromHMatrix
 
 ------------------------------------------------------
 -- Gates 
@@ -38,13 +45,19 @@ y = [[0 :+ 0, 0 :+ (-1)],
      [0 :+ 1, 0 :+ 0]]
 -- Id gate
 id_m :: Num a => [[a]]
-id_m = toLists $ identity 2
+id_m = DM.toLists $ DM.identity 2
 -- CX gate
 cx :: Num a => [[a]]
 cx = [[1,0,0,0],
       [0,1,0,0],
       [0,0,0,1],
       [0,0,1,0]]
+-- CZ gate
+cz :: [[Complex Double]]
+cz = [[1 :+ 0, 0 :+ 0, 0 :+ 0, 0 :+ 0],
+      [0 :+ 0, 1 :+ 0, 0 :+ 0, 0 :+ 0],
+      [0 :+ 0, 0 :+ 0, 1 :+ 0, 0 :+ 0],
+      [0 :+ 0, 0 :+ 0, 0 :+ 0, (-1) :+ 0]]
 -- CCX gate 
 ccx :: Num a => [[a]]
 ccx = [[1,0,0,0,0,0,0,0],
@@ -75,27 +88,51 @@ swap = [[1,0,0,0],
 ------------------------------------------------------
 -- matrix multiplications
 matMul :: Matrix -> Matrix -> Matrix
-matMul a b = [[sum [x*y | (x,y) <- zip row col] | col <- transpose b] | row <- a]
+matMul a b =
+    let a' = HC.toHMatrix a
+        b' = HC.toHMatrix b
+        (ar, ac) = LA.size a'
+        (br, bc) = LA.size b'
+    in
+      if ac /= br
+        then error $ "matMul: dimension mismatch: " ++ show (ar, ac) ++ " x " ++ show (br, bc)
+        else HC.fromHMatrix (a' LA.<> b')
 
 -- multiplication between a scalar and a matrix
 scalarMul :: Double -> Matrix -> Matrix
-scalarMul s = map (map (* (s :+ 0)))
+scalarMul s m = HC.fromHMatrix $ LA.scale (s :+ 0) (HC.toHMatrix m)
 
 -- matrix addition
 matAdd :: Matrix -> Matrix -> Matrix
-matAdd a b = [[x + y | (x, y) <- zip rowA rowB] | (rowA, rowB) <- zip a b]
+matAdd a b = HC.fromHMatrix $ (HC.toHMatrix a) + (HC.toHMatrix b)
 
--- dagger
+-- dagger (conjugate transpose)
 dagger :: Matrix -> Matrix
-dagger m = map (map conjugate) (transpose m)
+dagger m = HC.fromHMatrix $ LA.tr' (HC.toHMatrix m)
 
--- tensor product
+-- tensor product (Kronecker product)
 tensor_prod :: Matrix -> Matrix -> Matrix
-tensor_prod a b = concatMap (\rowA -> map (\rowB -> concatMap (\aElem -> map (aElem *) rowB) rowA) b) a
+tensor_prod a b = HC.fromHMatrix $ LA.kronecker (HC.toHMatrix a) (HC.toHMatrix b)
+
+-- Trace of a square matrix
+traceM :: [[Complex Double]] -> Complex Double
+traceM m = sum [row !! i | (i, row) <- zip [0..] m]
 
 -- Function to print the matrix
 printMatrix :: Show a => [[a]] -> IO ()
 printMatrix matrix = mapM_ (putStrLn . unwords . map show) matrix
+
+------------------------------------------------------
+-- General matrix square root using hmatrix (for Hermitian matrices)
+sqrtm :: [[Complex Double]] -> [[Complex Double]]
+sqrtm m =
+    let mat = HC.toHMatrix m
+        (eigVals, eigVecs) = LA.eigSH (LA.trustSym mat)
+        -- eigVals :: Vector Double, eigVecs :: Matrix (Complex Double)
+        sqrtEigVals = LA.cmap (sqrt . (:+ 0)) eigVals  -- Convert to Complex Double and sqrt
+        sqrtDiag = LA.diag sqrtEigVals
+        result = eigVecs LA.<> sqrtDiag LA.<> LA.tr' eigVecs
+    in HC.fromHMatrix result
 
 ------------------------------------------------------
 ------------------------------------------------------
