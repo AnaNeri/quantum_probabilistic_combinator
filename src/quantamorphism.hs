@@ -1,6 +1,8 @@
 module Quantamorphism (
     quantamorphism_b0_n2,
-    quantamorphism_b0_n2_wcorrection
+    quantamorphism_b0_n2_wcorrection,
+    quantamorphism_b0_n2_test5,
+    NoiseModel(..)
 ) where
 
 
@@ -9,7 +11,7 @@ import Matrices
 import Noise
 import Utils
 import System.Mem (performGC)
-import Control.Monad (when)
+import Control.Monad (when, foldM)
 import Text.Printf (printf)
 import GHC.Stats (getRTSStatsEnabled, getRTSStats)
 import qualified HCore as HC
@@ -18,6 +20,8 @@ import System.Random (randomRIO)
 import Control.DeepSeq (deepseq)
 
 import Distance
+
+data NoiseModel = PhaseFlip | Reset | Combined deriving (Eq, Show, Read)
 
 -- Memory check: estimate bytes used by a matrix (approx.)
 defaultMemoryLimitBytes :: Int
@@ -65,25 +69,31 @@ quantamorphism_b0_n2 p s n_qubits protected = do
 -- HMatrix-native implementation to avoid conversions when callers already have HMatrix
 quantamorphism_b0_n2_h :: Double -> HC.HMatrix -> Int -> Int -> IO HC.HMatrix
 quantamorphism_b0_n2_h p s_n_h n_qubits protected = do
+    quantamorphism_b0_n2_h_with_noise
+        (\gate state qubits -> gateWithPFInQubitH gate state p qubits)
+        s_n_h n_qubits protected
+
+quantamorphism_b0_n2_h_with_noise :: (HC.HMatrix -> HC.HMatrix -> [Int] -> IO HC.HMatrix) -> HC.HMatrix -> Int -> Int -> IO HC.HMatrix
+quantamorphism_b0_n2_h_with_noise applyNoise s_n_h n_qubits protected = do
     let s_n_b = HC.fromHMatrix s_n_h
     let one_h = HC.toHMatrix $ applySingleQubitGate id_m 0 n_qubits
-    s1_h <- gateWithPFInQubitH one_h s_n_h p [0]
+    s1_h <- applyNoise one_h s_n_h [0]
     -- If protected == 0, also apply id (with error) to 4 and 5
     s1a_h <- if protected == 0
         then do
-            s' <- gateWithPFInQubitH (HC.toHMatrix $ applySingleQubitGate id_m 4 n_qubits) s1_h p [4]
-            s'' <- gateWithPFInQubitH (HC.toHMatrix $ applySingleQubitGate id_m 5 n_qubits) s' p [5]
+            s' <- applyNoise (HC.toHMatrix $ applySingleQubitGate id_m 4 n_qubits) s1_h [4]
+            s'' <- applyNoise (HC.toHMatrix $ applySingleQubitGate id_m 5 n_qubits) s' [5]
             return s''
         else return s1_h
 
     let q1plusq2a_h = HC.tensorListFromLists [if i == 1 || i == 2 then x else id_m | i <- [0..n_qubits-1]]
-    s2a_h <- gateWithPFInQubitH q1plusq2a_h s1a_h p [1,2]
+    s2a_h <- applyNoise q1plusq2a_h s1a_h [1,2]
 
     let q1plusq2b_h = HC.toHMatrix $ applyMultiQubitGate ccx 1 n_qubits
-    s2b_h <- gateWithPFInQubitH q1plusq2b_h s2a_h p [1,2,3]
+    s2b_h <- applyNoise q1plusq2b_h s2a_h [1,2,3]
 
     let q1plusq2c_h = HC.toHMatrix $ applySingleQubitGate x 3 n_qubits
-    s2c_h <- gateWithPFInQubitH q1plusq2c_h s2b_h p [3]
+    s2c_h <- applyNoise q1plusq2c_h s2b_h [3]
 
     let q1plusq2d_core_h = foldl1 HC.matMulH
             ([ HC.toHMatrix (extendSWAP 2 n_qubits)
@@ -103,13 +113,13 @@ quantamorphism_b0_n2_h p s_n_h n_qubits protected = do
 
     let q1plusq2d = HC.fromHMatrix q1plusq2d_core_h
     let q1plusq2d_targets = if protected == 0 then [0,3,4,5] else [0,3]
-    s2d_h <- gateWithPFInQubitH (HC.toHMatrix q1plusq2d) s2c_h p q1plusq2d_targets
+    s2d_h <- applyNoise (HC.toHMatrix q1plusq2d) s2c_h q1plusq2d_targets
 
-    s2e_h <- gateWithPFInQubitH q1plusq2c_h s2d_h p [3]
+    s2e_h <- applyNoise q1plusq2c_h s2d_h [3]
 
-    s2f_h <- gateWithPFInQubitH q1plusq2b_h s2e_h p [1,2,3]
+    s2f_h <- applyNoise q1plusq2b_h s2e_h [1,2,3]
 
-    s2g_h <- gateWithPFInQubitH q1plusq2a_h s2f_h p [1,2]
+    s2g_h <- applyNoise q1plusq2a_h s2f_h [1,2]
 
     let q2_core_h = foldl1 HC.matMulH
             ([ HC.toHMatrix (extendSWAP 1 n_qubits)
@@ -131,15 +141,57 @@ quantamorphism_b0_n2_h p s_n_h n_qubits protected = do
             )
     let q2 = HC.fromHMatrix q2_core_h
     let q2_targets = if protected == 0 then [2,0,4,5] else [2,0]
-    s3_h <- gateWithPFInQubitH (HC.toHMatrix q2) s2g_h p q2_targets
+    s3_h <- applyNoise (HC.toHMatrix q2) s2g_h q2_targets
 
-    s4a_h <- gateWithPFInQubitH q1plusq2b_h s3_h p [1,2,3]
+    s4a_h <- applyNoise q1plusq2b_h s3_h [1,2,3]
 
-    s4b_h <- gateWithPFInQubitH (HC.toHMatrix q1plusq2d) s4a_h p q1plusq2d_targets
+    s4b_h <- applyNoise (HC.toHMatrix q1plusq2d) s4a_h q1plusq2d_targets
 
-    s4c_h <- gateWithPFInQubitH q1plusq2b_h s4b_h p [1,2,3]
+    s4c_h <- applyNoise q1plusq2b_h s4b_h [1,2,3]
 
     return s4c_h
+
+-- Test 5 noise: each affected qubit has an independent fault probability.
+applyTest5Noise :: Double -> Double -> NoiseModel -> Int -> HC.HMatrix -> HC.HMatrix -> [Int] -> IO HC.HMatrix
+applyTest5Noise otherProb lowErrorProb noiseModel lowErrorQubit gate state qubits = do
+    let noisyState = applyUnitaryH gate state
+        n = round (logBase 2 (fromIntegral (LA.rows noisyState)))
+        probability q = if q == lowErrorQubit then lowErrorProb else otherProb
+        noiseOperator op q = HC.tensorListH
+            [if i == q then op else HC.toHMatrix id_m | i <- [0..n-1]]
+        reset0 = HC.toHMatrix [[1 :+ 0, 0 :+ 0], [0 :+ 0, 0 :+ 0]]
+        reset1 = HC.toHMatrix [[0 :+ 0, 1 :+ 0], [0 :+ 0, 0 :+ 0]]
+        applyKraus k rho = HC.matMulH (HC.matMulH k rho) (LA.tr' k)
+        applyReset q rho = applyKraus (noiseOperator reset0 q) rho
+                        + applyKraus (noiseOperator reset1 q) rho
+        applyFault q rho = case noiseModel of
+            PhaseFlip -> applyUnitaryH (noiseOperator (HC.toHMatrix z) q) rho
+            Reset -> applyReset q rho
+            Combined -> applyReset q rho
+        applyOne rho q = do
+            fault <- randomRIO (0, 1)
+            let p = probability q
+            if fault <= p / 2
+                then case noiseModel of
+                    Combined -> return (applyReset q rho)
+                    _ -> return (applyFault q rho)
+                else if noiseModel == Combined && fault <= p
+                    then return (applyUnitaryH (noiseOperator (HC.toHMatrix z) q) rho)
+                    else if noiseModel == Combined
+                        then return rho
+                        else if fault <= p
+                            then return (applyFault q rho)
+                            else return rho
+    foldM applyOne noisyState qubits
+
+quantamorphism_b0_n2_test5 :: Double -> Double -> NoiseModel -> Int -> [[Complex Double]] -> IO [[Complex Double]]
+quantamorphism_b0_n2_test5 otherProb lowErrorProb noiseModel lowErrorQubit state_i = do
+    let applyNoise gate state qubits =
+            applyTest5Noise otherProb lowErrorProb noiseModel lowErrorQubit gate state qubits
+        s_n_h = HC.toHMatrix state_i
+        n_qubits = round (logBase 2 (fromIntegral (LA.rows s_n_h)))
+    result <- quantamorphism_b0_n2_h_with_noise applyNoise s_n_h n_qubits 1
+    return (HC.fromHMatrix result)
 
 -- quantamorphism by gates with correction       
 quantamorphism_b0_n2_wcorrection :: Double -> [[Complex Double]] -> Int -> IO [[Complex Double]]

@@ -14,6 +14,7 @@ import System.Directory (createDirectoryIfMissing)
 import Text.Printf (printf)
 import System.Environment (getArgs)
 import Data.Time (getCurrentTime, formatTime, defaultTimeLocale)
+import Data.List (intercalate)
 
 -- matrices 
 runMatrixTests :: IO ()
@@ -244,31 +245,49 @@ test4b = do
             ]
         return ()
     putStrLn $ "Fidelity results saved to " ++ fname
+
+-- test 5 ----------------------------------------------------------------
+-- No correction ancillas are used. Initial state is |1>|1>|1>|0|.
+-- The measured target is qubit 0.
+--------------------------------------------------------------------------
+test5 :: IO ()
+test5 = do
+    let probabilities = [0.0005, 0.005, 0.05]
+        targetProbability p = p * 0.1
+        n_qubits = 4
+        trials = 100
+        initialState = excite_qubits [0,1,2] n_qubits
+    t <- getCurrentTime
+    let timeStr = formatTime defaultTimeLocale "%Y%m%d%H%M%S" t
+        fname = "./data/test5_raw_Combined_1110_" ++ timeStr ++ ".csv"
+    createDirectoryIfMissing True "./data"
+    putStrLn "Test 5: combined reset/Z noise (p/2 reset, p/2 Z)"
+    withFile fname WriteMode $ \h -> do
+        hPutStrLn h "noise_model,probability,low_error_qubit,low_error_probability,trial,fidelity_target_qubit_0"
+        mapM_ (\p -> mapM_ (\lowErrorQubit -> do
+            ideal <- quantamorphism_b0_n2_test5 0 0 Combined 0 initialState
+            mapM_ (\trial -> do
+                result <- quantamorphism_b0_n2_test5 p (targetProbability p) Combined lowErrorQubit initialState
+                let fidelity = fidelityQubits result ideal [0] n_qubits
+                hPutStrLn h $ intercalate "," [show Combined, show p, show lowErrorQubit,
+                    show (targetProbability p), show trial, show fidelity]
+                ) [1..trials]
+            ) [0,1,2]
+            ) probabilities
+    putStrLn $ "Raw Test 5 results saved to " ++ fname
         
 --------------------------------------------------------------------------
 main :: IO()
-main = do 
-    args <- getArgs
-    case args of
-      ["test1", pStr, nStr] -> 
-        let p = read pStr
-            n = read nStr
-        in test1 p excited_state_density n
-      ["test2", pStr, nStr] -> 
-        let p = read pStr
-            n = read nStr
-        in test2 p excited_state_density n
-      ["test3", pStr, nStr] -> 
-        let p = read pStr
-            n = read nStr
-        in test3 p excited_state_density n
-      ["runTest2Sweep", nStr, idStr, dpStr] ->
-        let n = read nStr
-            dp = read dpStr :: Double
-        in runTest2Sweep n idStr dp
-      ["test4a"] ->
-        test4a
-      ["test4b"] ->
-        test4b
-      _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2 <prob> <n>\n  test3 <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>\n  test4a \n  test4b"
+main = do
+        args <- getArgs
+        case args of {
+            ["test1", pStr, nStr] -> let p = read pStr; n = read nStr in test1 p excited_state_density n;
+            ["test2", pStr, nStr] -> let p = read pStr; n = read nStr in test2 p excited_state_density n;
+            ["test3", pStr, nStr] -> let p = read pStr; n = read nStr in test3 p excited_state_density n;
+            ["runTest2Sweep", nStr, idStr, dpStr] -> let n = read nStr; dp = read dpStr :: Double in runTest2Sweep n idStr dp;
+            ["test4a"] -> test4a;
+            ["test4b"] -> test4b;
+            ["test5"] -> test5;
+            _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2 <prob> <n>\n  test3 <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>\n  test4a\n  test4b\n  test5 [PhaseFlip|Reset]"
+        }
 

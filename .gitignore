@@ -21,3 +21,9 @@ cabal.project.local
 cabal.project.local~
 .HTF/
 .ghc.environment.*
+
+.vscode/
+.venv/
+*.log
+*.cache
+.quantum_probabilistic:combinator.egg-info/

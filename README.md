@@ -22,3 +22,12 @@ Tests of quantum probabilistic combinator in haskell.
         - quantamorphism with and without error correction to each qubit
         - should allows to see noise accumulation and that some error correction strategies are better than others
         - it is a **practical application of the combinator**
+    * test 5
+        - compares cases where qubit 0, 1, or 2 is assigned 10% of the other gates' error probability; the quantamorphism target remains qubit 0
+        - combines independent reset-to-`|0>` and phase-flip (`Z`) errors: probability `p/2` each
+        - uses four qubits, starts from `|1>|1>|1>|0>`, and does not use correction ancillas
+        - records fidelity of target qubit 0 for probabilities `0.0005`, `0.005`, and `0.05`
+
+Test 5 can be run with `tests test5`.
+The raw CSV files are written to `data/test5_raw_Combined_1110_*.csv`. Run `python data/analyze_test5.py` to create
+`data/test5_clean.csv` and `data/test5_comparison.png`.
