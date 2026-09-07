@@ -1,8 +1,0 @@
-LICENSE
-README.md
-pyproject.toml
-quantum_probabilistic_combinator.egg-info/PKG-INFO
-quantum_probabilistic_combinator.egg-info/SOURCES.txt
-quantum_probabilistic_combinator.egg-info/dependency_links.txt
-quantum_probabilistic_combinator.egg-info/requires.txt
-quantum_probabilistic_combinator.egg-info/top_level.txt

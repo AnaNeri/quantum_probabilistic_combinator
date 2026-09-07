@@ -26,4 +26,4 @@ cabal.project.local~
 .venv/
 *.log
 *.cache
-.quantum_probabilistic:combinator.egg-info/
+quantum_probabilistic_combinator.egg-info/

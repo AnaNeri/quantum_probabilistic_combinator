@@ -2,13 +2,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
 
-df = pd.read_csv('out_test2_10000_bitFlip_0.0.csv')
+df = pd.read_csv('data/out_test2_10000_bitFlip_0.0.csv')
 
 
 plt.plot(df['prob_error'], df['0_corr'], label="0 with correction", color='blue')
 plt.plot(df['prob_error'], df['0_no_corr'], label="0 without correction", color='red')
 
-plt.title("Test Results - Noise is 100% less in correction")
+plt.title("Test Results - Noisy correction")
 plt.xlabel('Error Probability')
 plt.ylabel('Probability of 0')
 plt.legend()

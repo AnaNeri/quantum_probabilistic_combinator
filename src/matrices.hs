@@ -108,7 +108,7 @@ matAdd a b = HC.fromHMatrix $ (HC.toHMatrix a) + (HC.toHMatrix b)
 
 -- dagger (conjugate transpose)
 dagger :: Matrix -> Matrix
-dagger m = HC.fromHMatrix $ LA.tr' (HC.toHMatrix m)
+dagger m = HC.fromHMatrix $ LA.tr (HC.toHMatrix m)
 
 -- tensor product (Kronecker product)
 tensor_prod :: Matrix -> Matrix -> Matrix
