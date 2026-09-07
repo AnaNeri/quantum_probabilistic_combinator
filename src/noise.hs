@@ -1,7 +1,9 @@
 module Noise (
     gateWithDepolarizing,
     gateWithBFInQubit,
-    gateWithPFInQubit
+    gateWithPFInQubit,
+    gateWithDepolarizingExact,
+    gateWithBFInQubitExact
 ) where
 
 import Data.Complex
@@ -51,3 +53,22 @@ gateWithPFInQubit gate state prob qubitsList = do
     let s1 = matMul (matMul gate state) (dagger gate)
     s2 <- quantumChoice (buildNoiseOp z) idN (prob) s1
     return s2
+
+-- Exact (non-sampling) counterpart of gateWithDepolarizing: computes the
+-- exact channel output as a weighted sum of density matrices.
+gateWithDepolarizingExact :: [[Complex Double]] -> [[Complex Double]] -> Double -> [[Complex Double]]
+gateWithDepolarizingExact gate state prob =
+    let state' = matMul (matMul gate state) (dagger gate)
+        s1 = quantumChoiceExact x id_m (prob/3) state'
+        s2 = quantumChoiceExact y id_m (prob/3) s1
+        s3 = quantumChoiceExact z id_m (prob/3) s2
+    in s3
+
+-- Exact (non-sampling) counterpart of gateWithBFInQubit.
+gateWithBFInQubitExact :: [[Complex Double]] -> [[Complex Double]] -> Double -> [Int] -> [[Complex Double]]
+gateWithBFInQubitExact gate state prob qubitsList =
+    let n = round (logBase 2 (fromIntegral (length state)))
+        buildNoiseOp op = HC.fromHMatrix $ HC.tensorListFromLists [if i `elem` qubitsList then op else id_m | i <- [0..n-1]]
+        idN = identityN n
+        s1 = matMul (matMul gate state) (dagger gate)
+    in quantumChoiceExact (buildNoiseOp x) idN prob s1

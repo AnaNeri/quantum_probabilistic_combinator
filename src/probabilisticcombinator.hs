@@ -2,6 +2,7 @@ module ProbabilisticCombinator (
     choice,
     quantumChoice,
     quantumChoiceMix,
+    quantumChoiceExact,
     roundMatrix,
     test_prob_comb
 ) where
@@ -37,6 +38,15 @@ quantumChoiceMix :: Monad m => Matrix -> Matrix -> Double -> Matrix -> m Matrix
 quantumChoiceMix u' u p v =
     return $ matAdd (scalarMul p (matMul (matMul u' v) (dagger u')))
                     (scalarMul (1 - p) (matMul (matMul u v) (dagger u)))
+
+-- Exact quantum channel: the same p*U'+ (1-p)*U mixture as quantumChoice,
+-- computed directly as a weighted sum of density matrices instead of by
+-- random sampling, so a single call returns the exact channel output.
+quantumChoiceExact :: Matrix -> Matrix -> Double -> Matrix -> Matrix
+quantumChoiceExact u' u p v =
+    let term0 = matMul (matMul u' v) (dagger u')
+        term1 = matMul (matMul u v) (dagger u)
+    in matAdd (scalarMul p term0) (scalarMul (1 - p) term1)
 
 -- Example functions classic
 addOne :: Int -> Int

@@ -280,6 +280,187 @@ test5c = do
             ) [0,1,2]
             ) probabilities
     putStrLn $ "Raw Test 5 results saved to " ++ fname
+
+-- test 6 --------------------------------------------------------------------
+-- Break-even calculation for test 2's circuit (not a simulation): is
+-- bit-flip correction worth it, or is it better to just build the circuit
+-- from better gates? gateWithDepolarizingExact/gateWithBFInQubitExact return
+-- the closed-form density matrix (via quantumChoiceExact) instead of a
+-- sampled branch, so every value below is exact, computed once, no trials.
+-- Sweeps the same p range as test2/runTest2Sweep ([0.4,0.395..0.001]) and a
+-- decreaseProb grid, and finds the break-even decreaseProb per p by
+-- bisecting the exact difference p1_corr - p1_reduced_only.
+--------------------------------------------------------------------------
+
+-- Exact '1' (error) rate of a lone X gate at probability p, no correction.
+p1NoCorrExact :: Double -> Double
+p1NoCorrExact p = snd (measure (gateWithDepolarizingExact x excited_state_density p) 0 !! 1)
+
+-- Exact '1' (error) rate of a lone X gate built from the improved gates.
+p1ReducedOnlyExact :: Double -> Double
+p1ReducedOnlyExact pReduced = snd (measure (gateWithDepolarizingExact x excited_state_density pReduced) 0 !! 1)
+
+-- Exact '1' (error) rate of test2's bit-flip correction circuit: the
+-- working XXX gate runs at p, the surrounding CX/CCX gates run at pReduced.
+p1CorrExact :: Double -> Double -> Double
+p1CorrExact p pReduced =
+    let s_n = extendToNQubits 3 excited_state_density
+        cx1 = tensor_prod cx id_m
+        s1 = gateWithBFInQubitExact cx1 s_n pReduced [0,1]
+        cx2 = matMul (matMul (extendSWAP 1 3) (tensor_prod cx id_m)) (extendSWAP 1 3)
+        s2 = gateWithBFInQubitExact cx2 s1 pReduced [0,2]
+        xxx = tensor_prod (tensor_prod x x) x
+        s3 = gateWithBFInQubitExact xxx s2 p [0,1,2]
+        s4 = gateWithBFInQubitExact cx1 s3 pReduced [0,1]
+        s5 = gateWithBFInQubitExact cx2 s4 pReduced [0,2]
+        invccx = matMul (matMul (matMul (extendSWAP 0 3) (extendSWAP 1 3)) ccx) (matMul (extendSWAP 0 3) (extendSWAP 1 3))
+        s6 = gateWithBFInQubitExact invccx s5 pReduced [0,1,2]
+    in snd (measure s6 0 !! 1)
+
+-- Bisection root-finder over decreaseProb in [0,1] for the exact difference
+-- p1_corr - p1_reduced_only; Nothing if there is no sign change (one
+-- strategy dominates across the whole range for that p).
+findBreakevenExact :: Double -> Maybe Double
+findBreakevenExact p = go 0 1 (diff 0) (diff 1) (60 :: Int)
+  where
+    diff d = let pReduced = p * (1 - d) in p1CorrExact p pReduced - p1ReducedOnlyExact pReduced
+    go lo hi fLo fHi n
+        | fLo * fHi > 0 = Nothing
+        | n <= 0 = Just ((lo + hi) / 2)
+        | otherwise =
+            let mid = (lo + hi) / 2
+                fMid = diff mid
+            in if fLo * fMid <= 0 then go lo mid fLo fMid (n - 1) else go mid hi fMid fHi (n - 1)
+
+test6ExactSweep :: String -> IO ()
+test6ExactSweep idOfTest = do
+    let ps = [0.4,0.395..0.001]
+        decreaseProbs = [0.0,0.1..1.0]
+        dir = "./data"
+        fname = dir ++ "/out_test6_exact_" ++ idOfTest ++ ".csv"
+        breakevenFname = dir ++ "/out_test6_breakeven_exact_" ++ idOfTest ++ ".csv"
+    createDirectoryIfMissing True dir
+    withFile fname WriteMode $ \h -> do
+        hPutStrLn h "prob_error,decrease_prob,lambda,1_no_corr,1_corr,1_reduced_only,better_strategy"
+        mapM_ (\p -> do
+            let p1_no_corr = p1NoCorrExact p
+            mapM_ (\d -> do
+                let lambda = 1 - d
+                    pReduced = p * lambda
+                    p1_corr = p1CorrExact p pReduced
+                    p1_reduced = p1ReducedOnlyExact pReduced
+                    better
+                        | p1_corr < p1_reduced = "correction"
+                        | p1_reduced < p1_corr = "better_gates"
+                        | otherwise = "tie"
+                hPutStrLn h $ printf "%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%s" p d lambda p1_no_corr p1_corr p1_reduced better
+                ) decreaseProbs
+            ) ps
+    putStrLn $ "Exact results saved to " ++ fname
+    withFile breakevenFname WriteMode $ \h -> do
+        hPutStrLn h "prob_error,breakeven_decrease_prob,breakeven_lambda"
+        mapM_ (\p ->
+            case findBreakevenExact p of
+                Just d -> hPutStrLn h $ printf "%.17g,%.17g,%.17g" p d (1 - d)
+                Nothing -> hPutStrLn h $ printf "%.17g,," p
+            ) ps
+    putStrLn $ "Exact break-even points saved to " ++ breakevenFname
+
+-- Monte Carlo estimate of test2's correction circuit '1' (error) rate,
+-- same mechanism as runTest2Sweep (gateWithBFInQubit, one sampled branch
+-- per trial), averaged over nTrials independent stochastic runs.
+normalizedProbability :: Double -> Double -> Double
+normalizedProbability total norm
+    | norm <= 0 = 0
+    | otherwise = min 1 (max 0 (total / norm))
+
+simulateP1Corr :: Int -> Double -> Double -> IO Double
+simulateP1Corr nTrials p pReduced = do
+    let s_n = extendToNQubits 3 excited_state_density
+    results <- sequence [ do
+        let cx1 = tensor_prod cx id_m
+        s1 <- gateWithBFInQubit cx1 s_n pReduced [0,1]
+        let cx2 = matMul (matMul (extendSWAP 1 3) (tensor_prod cx id_m)) (extendSWAP 1 3)
+        s2 <- gateWithBFInQubit cx2 s1 pReduced [0,2]
+        let xxx = tensor_prod (tensor_prod x x) x
+        s3 <- gateWithBFInQubit xxx s2 p [0,1,2]
+        s4 <- gateWithBFInQubit cx1 s3 pReduced [0,1]
+        s5 <- gateWithBFInQubit cx2 s4 pReduced [0,2]
+        let invccx = matMul (matMul (matMul (extendSWAP 0 3) (extendSWAP 1 3)) ccx) (matMul (extendSWAP 0 3) (extendSWAP 1 3))
+        s6 <- gateWithBFInQubit invccx s5 pReduced [0,1,2]
+        return s6
+        | _ <- [1..nTrials]]
+    let measured = map (`measure` 0) results
+        total1 = sum [v | [('0',_),('1',v)] <- measured]
+        norm = sum [v0 + v1 | [('0',v0),('1',v1)] <- measured]
+    return (normalizedProbability total1 norm)
+
+-- Monte Carlo estimate of a lone X gate's '1' (error) rate at pReduced.
+simulateP1ReducedOnly :: Int -> Double -> IO Double
+simulateP1ReducedOnly nTrials pReduced = do
+    results <- sequence [gateWithDepolarizing x excited_state_density pReduced | _ <- [1..nTrials]]
+    let measured = map (`measure` 0) results
+        total1 = sum [v | [('0',_),('1',v)] <- measured]
+        norm = sum [v0 + v1 | [('0',v0),('1',v1)] <- measured]
+    return (normalizedProbability total1 norm)
+
+-- Linear interpolation of the first sign change of (decreaseProb, diff) pairs.
+interpolateSignChange :: [(Double, Double)] -> Maybe Double
+interpolateSignChange ((d0,f0):(d1,f1):rest)
+    | f0 == 0 = Just d0
+    | f0 * f1 < 0 = Just (d0 + f0 / (f0 - f1) * (d1 - d0))
+    | otherwise = interpolateSignChange ((d1,f1):rest)
+interpolateSignChange _ = Nothing
+
+test6SimSweep :: Int -> String -> IO ()
+test6SimSweep nTrials idOfTest = do
+    let ps = [0.4, 0.04]
+        decreaseProbs = [0.0, 0.5, 1.0]
+        dir = "./data"
+        fname = dir ++ "/out_test6_sim_" ++ idOfTest ++ ".csv"
+        breakevenFname = dir ++ "/out_test6_breakeven_sim_" ++ idOfTest ++ ".csv"
+    createDirectoryIfMissing True dir
+    withFile fname WriteMode $ \h -> do
+        hPutStrLn h "prob_error,decrease_prob,iterations,1_corr,1_reduced_only,better_strategy"
+        mapM_ (\p -> do
+            diffs <- mapM (\d -> do
+                let pReduced = p * (1 - d)
+                putStrLn $ "Running test6 simulation for p=" ++ show p ++ ", decreaseProb=" ++ show d
+                c <- simulateP1Corr nTrials p pReduced
+                r <- simulateP1ReducedOnly nTrials pReduced
+                let better
+                        | c < r = "correction"
+                        | r < c = "better_gates"
+                        | otherwise = "tie"
+                hPutStrLn h $ printf "%.17g,%.17g,%d,%.17g,%.17g,%s" p d nTrials c r better
+                return (d, c - r)
+                ) decreaseProbs
+            case interpolateSignChange diffs of
+                Just d -> putStrLn $ "  simulated break-even decreaseProb ~ " ++ show d
+                Nothing -> putStrLn "  no sign change found on this grid"
+            ) ps
+    putStrLn $ "Simulated results saved to " ++ fname
+    withFile breakevenFname WriteMode $ \h -> do
+        hPutStrLn h "prob_error,breakeven_decrease_prob"
+        mapM_ (\p -> do
+            diffs <- mapM (\d -> do
+                let pReduced = p * (1 - d)
+                c <- simulateP1Corr nTrials p pReduced
+                r <- simulateP1ReducedOnly nTrials pReduced
+                return (d, c - r)
+                ) decreaseProbs
+            case interpolateSignChange diffs of
+                Just d -> hPutStrLn h $ printf "%.17g,%.17g" p d
+                Nothing -> hPutStrLn h $ printf "%.17g," p
+            ) ps
+    putStrLn $ "Simulated break-even points saved to " ++ breakevenFname
+
+test6BreakEven :: String -> IO ()
+test6BreakEven idOfTest = do
+    putStrLn "=== Test 6a: exact (closed-form) break-even sweep ==="
+    test6ExactSweep idOfTest
+    putStrLn "\n=== Test 6b: simulated (Monte Carlo) break-even sweep ==="
+    test6SimSweep 300 idOfTest
         
 -- test 3a --------------------------------------------------------------
 -- Builds the matrix for qfor H over labels (n, Bool), n=0..3, then applies
@@ -782,5 +963,8 @@ main = do
             ["test5a"] -> test5a;
             ["test5b"] -> test5b;
             ["test5c"] -> test5c;
-            _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2a <prob> <n>\n  test2b <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>\n  test3a\n  test3b\n  test4a\n  test4b\n  test5a\n  test5b\n  test5c"
+            ["test6BreakEven", idStr] -> test6BreakEven idStr;
+            ["test6exact", idStr] -> test6ExactSweep idStr;
+            ["test6sim", nStr, idStr] -> let n = read nStr in test6SimSweep n idStr;
+            _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2a <prob> <n>\n  test2b <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>\n  test3a\n  test3b\n  test4a\n  test4b\n  test5a\n  test5b\n  test5c\n  test6BreakEven <idOfTest>\n  test6exact <idOfTest>\n  test6sim <nTrials> <idOfTest>"
         }
