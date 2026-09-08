@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Quantum Probabilistic Combinator"
+type: software
+authors:
+  - family-names: Neri
+    given-names: Ana
+license: MIT
+repository-code: "https://github.com/AnaNeri/quantum_probabilistic_combinator"
+version: 0.1.0
