@@ -23,6 +23,7 @@ executable tests
     Distance
     Matrices
     Noise
+    MQfor
     ProbabilisticCombinator
     Quantamorphism
     Utils
