@@ -16,7 +16,8 @@ import System.Directory (createDirectoryIfMissing)
 import Text.Printf (printf)
 import System.Environment (getArgs)
 import Data.Time (getCurrentTime, formatTime, defaultTimeLocale)
-import Data.List (intercalate)
+import Data.List (intercalate, transpose)
+import Data.Bits (xor)
 
 -- matrices 
 runMatrixTests :: IO ()
@@ -669,6 +670,123 @@ test13 = do
             ) cases
     putStrLn $ "Test 13 results saved to " ++ fname
 
+-- test 14 ---------------------------------------------------------------
+-- Builds the matrix for qfor H over labels (n, Bool), n=0..3, then applies
+-- it to a random density matrix rho_0. Finally, applies SPAM bit-flip noise
+-- to rho_0 with quantumChoice, runs the same circuit 100 times, and reports
+-- the average infidelity from the clean final density matrix.
+--------------------------------------------------------------------------
+test14 :: IO ()
+test14 = do
+    let maxN = 3
+        p = 0.1
+        trials = 100
+        labels = [(n, b) | n <- [0 .. maxN], b <- [False, True]]
+        dim = length labels
+        zero = 0 :+ 0
+        one = 1 :+ 0
+
+        targetVector False = [one, zero]
+        targetVector True = [zero, one]
+
+        applyH target = do
+            let col = matMul h [[target !! 0], [target !! 1]]
+            return [head (col !! 0), head (col !! 1)]
+
+        vectorToBlock n target = concat
+            [ if n' == n then target else [zero, zero]
+            | n' <- [0 .. maxN]
+            ]
+
+        vectorOf label =
+            [ if rowLabel == label then one else zero
+            | rowLabel <- labels
+            ]
+        permutationMatrix move = transpose [vectorOf (move label) | label <- labels]
+        id8 = permutationMatrix id
+        targetQ0Flip = permutationMatrix (\(n, b) -> (n, not b))
+        controlQ1Flip = permutationMatrix (\(n, b) -> (n `xor` 2, b))
+        controlQ2Flip = permutationMatrix (\(n, b) -> (n `xor` 1, b))
+        basisDensity label =
+            let v = vectorOf label
+            in [[a * conjugate b | b <- v] | a <- v]
+
+        applySpamModel targetProb control1Prob control2Prob rho = do
+            rho1 <- quantumChoice targetQ0Flip id8 targetProb rho
+            rho2 <- quantumChoice controlQ1Flip id8 control1Prob rho1
+            quantumChoice controlQ2Flip id8 control2Prob rho2
+
+        formatComplex (r :+ i)
+            | abs i < 1e-9 = printf "%.6f" r
+            | otherwise = printf "%.6f%+.6fi" r i
+        formatRow row = intercalate "\t" (map formatComplex row)
+        labelText (n, b) = "(" ++ show n ++ "," ++ show b ++ ")"
+        labeledMatrixText matrix = unlines $
+            ("\t" ++ intercalate "\t" (map labelText labels)) :
+            [ labelText label ++ "\t" ++ formatRow row
+            | (label, row) <- zip labels matrix
+            ]
+        matrixText title matrix = title ++ "\n" ++ unlines (map formatRow matrix)
+        models =
+            [ ("uniform_noise", p, p, p)
+            , ("target_q0_less_noise", p * 0.1, p, p)
+            , ("control_q1_less_noise", p, p * 0.1, p)
+            , ("control_q2_less_noise", p, p, p * 0.1)
+            ]
+        modelHeader = "model\ttarget_q0_p\tcontrol_q1_p\tcontrol_q2_p\tavg_fidelity\tavg_distance"
+        modelRow (name, targetProb, control1Prob, control2Prob, avgFid, avgDist) =
+            printf "%s\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f" name targetProb control1Prob control2Prob avgFid avgDist
+
+    columns <- mapM
+        (\(n, b) -> do
+            (_, outTarget) <- mqfor applyH (n, targetVector b)
+            return (vectorToBlock n outTarget)
+        )
+        labels
+
+    let hQforMatrix = transpose columns
+
+    let rho0Label = (1, False)
+        rho0 = basisDensity rho0Label
+        cleanFinal = matMul (matMul hQforMatrix rho0) (dagger hQforMatrix)
+
+    modelResults <- sequence
+        [ do
+            fidelities <- sequence
+                [ do
+                    rhoWithSpam <- applySpamModel targetProb control1Prob control2Prob rho0
+                    let noisyFinal = matMul (matMul hQforMatrix rhoWithSpam) (dagger hQforMatrix)
+                    return (fidelity_density cleanFinal noisyFinal)
+                | _ <- [1 .. trials]
+                ]
+            let avgFid = sum fidelities / fromIntegral trials
+                avgDist = 1 - avgFid
+            return (name, targetProb, control1Prob, control2Prob, avgFid, avgDist)
+        | (name, targetProb, control1Prob, control2Prob) <- models
+        ]
+
+    let modelTable = unlines (modelHeader : map modelRow modelResults)
+        report = unlines
+            [ "Test 14: qfor H matrix with labels"
+            , "Target qubit q0 is the Bool component in labels (n, Bool)."
+            , "Control qubits q1 and q2 are encoded by n in binary."
+            , "rho_0 label=" ++ labelText rho0Label
+            , "p_spam=" ++ show p
+            , "trials=" ++ show trials
+            , ""
+            , labeledMatrixText hQforMatrix
+            , matrixText "rho_0:" rho0
+            , matrixText "Final density matrix H_qfor rho_0 H_qfor^dagger:" cleanFinal
+            , "SPAM model comparison:"
+            , modelTable
+            ]
+        fname = "./data/out_test14_qfor_h.txt"
+
+    createDirectoryIfMissing True "./data"
+    writeFile fname report
+    putStr report
+    putStrLn $ "Test 14 results saved to " ++ fname
+
 --------------------------------------------------------------------------
 main :: IO()
 main = do
@@ -689,6 +807,7 @@ main = do
             ["test11"] -> test11;
             ["test12"] -> test12;
             ["test13"] -> test13;
-            _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2 <prob> <n>\n  test3 <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>\n  test4a\n  test4b\n  test5 [PhaseFlip|Reset]\n  test6\n  test7\n  test8\n  test9\n  test10\n  test11\n  test12\n  test13"
+            ["test14"] -> test14;
+            _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2 <prob> <n>\n  test3 <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>\n  test4a\n  test4b\n  test5 [PhaseFlip|Reset]\n  test6\n  test7\n  test8\n  test9\n  test10\n  test11\n  test12\n  test13\n  test14"
         }
 
