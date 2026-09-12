@@ -45,12 +45,20 @@ cabal run tests -- test1 0.05 20
 * test 1 — `test1 <prob> <n>`
     - check noise accumulation in circuit X vs circuit HZH
     - shows that more depth usually results in more noise
-* test 2 — `test2 <prob> <n>` (also `runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>`)
+* test 2a — `test2a <prob> <n>` (also `runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>`)
     - check noise in circuit X with and without error correction bit flip error (implementation uses DOI: [10.13140/RG.2.2.18542.77129](https://www.researchgate.net/publication/334634646_The_first_three-qubit_and_six-qubit_full_quantum_multiple_error-correcting_codes_with_low_quantum_costs?channel=doi&linkId=5d36ffe2a6fdcc370a57ac6a&showFulltext=true))
     - this type of codes is used in message transmission and does not seem to work in programs.
-    - Allow to see that error correction reduces error, when correction gates are better than the working gates.
-* test 3 — `test3 <prob> <n>`
-    - check surface code for X gate
+    - allow to see that error correction reduces error when correction gates are better than the working gates.
+* test 2b — `test2b <prob> <n>`
+    - check fidelity of the noisy X gate against the ideal expected state
+* test 3a — `test3a`
+    - qfor H matrix with labels: Monte Carlo SPAM bit-flip model over the encoded basis states
+    - compares target-only vs control-only noise effects on the final density matrix using repeated sampling
+    - writes the report to `data/out_test3a_qfor_h.txt`
+* test 3b — `test3b`
+    - same qfor H setup as test 3a, but uses the deterministic SPAM mixture `quantumChoiceMix`
+    - applies the exact mixture instead of Monte Carlo sampling to inspect how the error spreads through the density matrix
+    - writes the report to `data/out_test3b_qfor_h_deterministic.txt`
 * test 4 — `test4a` / `test4b`
     - quantamorphism with and without error correction to each qubit
     - should allows to see noise accumulation and that some error correction strategies are better than others

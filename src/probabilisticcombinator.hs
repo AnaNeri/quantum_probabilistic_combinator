@@ -1,6 +1,7 @@
 module ProbabilisticCombinator (
     choice,
     quantumChoice,
+    quantumChoiceMix,
     roundMatrix,
     test_prob_comb
 ) where
@@ -30,6 +31,12 @@ quantumChoice u' u p v = do
     if prob <= p
         then return term0
         else return term1
+
+-- Deterministic quantum mixture: p*(u' v u'^dagger) + (1-p)*(u v u^dagger)
+quantumChoiceMix :: Matrix -> Matrix -> Double -> Matrix -> Matrix
+quantumChoiceMix u' u p v =
+    matAdd (scalarMul p (matMul (matMul u' v) (dagger u')))
+           (scalarMul (1 - p) (matMul (matMul u v) (dagger u)))
 
 -- Example functions classic
 addOne :: Int -> Int

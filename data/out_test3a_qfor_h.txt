@@ -1,4 +1,4 @@
-Test 14: qfor H matrix with labels
+Test 3a: qfor H matrix with labels
 Target qubit q0 is the Bool component in labels (n, Bool).
 Control qubits q1 and q2 are encoded by n in binary.
 rho_0 label=(1,False)
@@ -35,10 +35,9 @@ Final density matrix H_qfor rho_0 H_qfor^dagger:
 0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000
 0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000
 
-SPAM model comparison:
-model	target_q0_p	control_q1_p	control_q2_p	avg_fidelity	avg_distance
-uniform_noise	0.100000	0.100000	0.100000	0.720000	0.280000
-target_q0_less_noise	0.010000	0.100000	0.100000	0.810000	0.190000
-control_q1_less_noise	0.100000	0.010000	0.100000	0.800000	0.200000
-control_q2_less_noise	0.100000	0.100000	0.010000	0.860000	0.140000
+Isolated SPAM model comparison (100 trials):
+model	full_fidelity	target_fidelity	control_fidelity	full_distance	target_distance	control_distance
+target_only	0.880000	0.880000	1.000000	0.120000	0.120000	0.000000
+control_q1_only	0.940000	1.000000	0.940000	0.060000	0.000000	0.060000
+control_q2_only	0.890000	0.945000	0.890000	0.110000	0.055000	0.110000
 

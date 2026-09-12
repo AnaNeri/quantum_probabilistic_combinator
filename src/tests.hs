@@ -64,15 +64,15 @@ test1 p s n = do
         putStrLn $ show matStr ++ "Count: " ++ show c
         ) counts
 
--- test 2 -----------------------------------------------------------------
+-- test 2a ----------------------------------------------------------------
 -- X vs X with bit-flip error correction scheme
 -- bit-flip is not enough for error correction of faulty gates
 -- may be helpful if it is in noise transmission, 
 -- where correction gates have less noise than the working system
 --------------------------------------------------------------------------- 
 
-test2 :: Double -> [[Complex Double]] -> Int -> IO ()
-test2 p s n = do
+test2a :: Double -> [[Complex Double]] -> Int -> IO ()
+test2a p s n = do
     putStrLn $ "Test: X, with error X_p/3 ∘ Y_p/3 ∘ Z_p/3 with probability " ++ show p ++
                ", initial state " ++ show (roundMatrix 2 s) ++ ", " ++ show n ++ " iterations"
     results <- sequence [ do
@@ -161,12 +161,12 @@ runTest2Sweep nTest idOfTest decreaseProb = do
             ) ps
     putStrLn $ "Results saved to " ++ fname
 
--- test 3 ---------------------------------------------------------------
+-- test 2b --------------------------------------------------------------
 -- Fidelity calculation
 -----------------------------------------------------------------------
 
-test3 :: Double -> [[Complex Double]] -> Int -> IO ()
-test3 p s n = do 
+test2b :: Double -> [[Complex Double]] -> Int -> IO ()
+test2b p s n = do 
     putStrLn $ "Test: X, with error X_p/3 ∘ Y_p/3 ∘ Z_p/3 with probability " ++ show p ++
                ", initial state " ++ show (roundMatrix 2 s) ++ ", " ++ show n ++ " iterations"
     let expected = matMul (matMul x s) (dagger x)
@@ -670,14 +670,14 @@ test13 = do
             ) cases
     putStrLn $ "Test 13 results saved to " ++ fname
 
--- test 14 ---------------------------------------------------------------
+-- test 3a --------------------------------------------------------------
 -- Builds the matrix for qfor H over labels (n, Bool), n=0..3, then applies
 -- it to a random density matrix rho_0. Finally, applies SPAM bit-flip noise
 -- to rho_0 with quantumChoice, runs the same circuit 100 times, and reports
 -- the average infidelity from the clean final density matrix.
 --------------------------------------------------------------------------
-test14 :: IO ()
-test14 = do
+test3a :: IO ()
+test3a = do
     let maxN = 3
         p = 0.1
         trials = 100
@@ -716,6 +716,15 @@ test14 = do
             rho2 <- quantumChoice controlQ1Flip id8 control1Prob rho1
             quantumChoice controlQ2Flip id8 control2Prob rho2
 
+        targetReduced rho =
+            [ [sum [rho !! (2 * n + b) !! (2 * n + b') | n <- [0 .. maxN]]
+              | b' <- [0, 1] ]
+            | b <- [0, 1] ]
+        controlReduced rho =
+            [ [sum [rho !! (2 * n + b) !! (2 * n' + b) | b <- [0, 1]]
+              | n' <- [0 .. maxN] ]
+            | n <- [0 .. maxN] ]
+
         formatComplex (r :+ i)
             | abs i < 1e-9 = printf "%.6f" r
             | otherwise = printf "%.6f%+.6fi" r i
@@ -728,14 +737,14 @@ test14 = do
             ]
         matrixText title matrix = title ++ "\n" ++ unlines (map formatRow matrix)
         models =
-            [ ("uniform_noise", p, p, p)
-            , ("target_q0_less_noise", p * 0.1, p, p)
-            , ("control_q1_less_noise", p, p * 0.1, p)
-            , ("control_q2_less_noise", p, p, p * 0.1)
+            [ ("target_only", p, 0, 0)
+            , ("control_q1_only", 0, p, 0)
+            , ("control_q2_only", 0, 0, p)
             ]
-        modelHeader = "model\ttarget_q0_p\tcontrol_q1_p\tcontrol_q2_p\tavg_fidelity\tavg_distance"
-        modelRow (name, targetProb, control1Prob, control2Prob, avgFid, avgDist) =
-            printf "%s\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f" name targetProb control1Prob control2Prob avgFid avgDist
+        modelHeader = "model\tfull_fidelity\ttarget_fidelity\tcontrol_fidelity\tfull_distance\ttarget_distance\tcontrol_distance"
+        modelRow (name, fullFid, targetFid, controlFid, fullDist, targetDist, controlDist) =
+            printf "%s\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f"
+                name fullFid targetFid controlFid fullDist targetDist controlDist
 
     columns <- mapM
         (\(n, b) -> do
@@ -749,25 +758,34 @@ test14 = do
     let rho0Label = (1, False)
         rho0 = basisDensity rho0Label
         cleanFinal = matMul (matMul hQforMatrix rho0) (dagger hQforMatrix)
+        cleanTarget = targetReduced cleanFinal
+        cleanControl = controlReduced cleanFinal
 
     modelResults <- sequence
         [ do
-            fidelities <- sequence
+            measurements <- sequence
                 [ do
                     rhoWithSpam <- applySpamModel targetProb control1Prob control2Prob rho0
                     let noisyFinal = matMul (matMul hQforMatrix rhoWithSpam) (dagger hQforMatrix)
-                    return (fidelity_density cleanFinal noisyFinal)
+                        fullFid = fidelity_density cleanFinal noisyFinal
+                        targetFid = fidelity_density cleanTarget (targetReduced noisyFinal)
+                        controlFid = fidelity_density cleanControl (controlReduced noisyFinal)
+                    return (fullFid, targetFid, controlFid)
                 | _ <- [1 .. trials]
                 ]
-            let avgFid = sum fidelities / fromIntegral trials
-                avgDist = 1 - avgFid
-            return (name, targetProb, control1Prob, control2Prob, avgFid, avgDist)
+            let avg (fullFids, targetFids, controlFids) =
+                    ( sum fullFids / fromIntegral trials
+                    , sum targetFids / fromIntegral trials
+                    , sum controlFids / fromIntegral trials
+                    )
+                (avgFull, avgTarget, avgControl) = avg (unzip3 measurements)
+            return (name, avgFull, avgTarget, avgControl,
+                1 - avgFull, 1 - avgTarget, 1 - avgControl)
         | (name, targetProb, control1Prob, control2Prob) <- models
         ]
 
-    let modelTable = unlines (modelHeader : map modelRow modelResults)
-        report = unlines
-            [ "Test 14: qfor H matrix with labels"
+    let report = unlines
+            [ "Test 3a: qfor H matrix with labels"
             , "Target qubit q0 is the Bool component in labels (n, Bool)."
             , "Control qubits q1 and q2 are encoded by n in binary."
             , "rho_0 label=" ++ labelText rho0Label
@@ -777,15 +795,125 @@ test14 = do
             , labeledMatrixText hQforMatrix
             , matrixText "rho_0:" rho0
             , matrixText "Final density matrix H_qfor rho_0 H_qfor^dagger:" cleanFinal
-            , "SPAM model comparison:"
-            , modelTable
+            , "Isolated SPAM model comparison (100 trials):"
+            , unlines (modelHeader : map modelRow modelResults)
             ]
-        fname = "./data/out_test14_qfor_h.txt"
+        fname = "./data/out_test3a_qfor_h.txt"
 
     createDirectoryIfMissing True "./data"
     writeFile fname report
     putStr report
-    putStrLn $ "Test 14 results saved to " ++ fname
+    putStrLn $ "Test 3a results saved to " ++ fname
+
+-- test 3b --------------------------------------------------------------
+-- Same qfor H circuit and SPAM gates as test3a, but the SPAM error is
+-- applied with the deterministic quantumChoiceMix combinator instead of
+-- the Monte Carlo quantumChoice: rho' = p*(u' rho u'^dagger) + (1-p)*(u rho u^dagger).
+-- No trials are needed since the result is exact; we print the resulting
+-- density matrix directly to inspect how the error spreads across entries.
+--------------------------------------------------------------------------
+test3b :: IO ()
+test3b = do
+    let maxN = 3
+        p = 0.1
+        labels = [(n, b) | n <- [0 .. maxN], b <- [False, True]]
+        zero = 0 :+ 0
+        one = 1 :+ 0
+
+        targetVector False = [one, zero]
+        targetVector True = [zero, one]
+
+        applyH target = do
+            let col = matMul h [[target !! 0], [target !! 1]]
+            return [head (col !! 0), head (col !! 1)]
+
+        vectorToBlock n target = concat
+            [ if n' == n then target else [zero, zero]
+            | n' <- [0 .. maxN]
+            ]
+
+        vectorOf label =
+            [ if rowLabel == label then one else zero
+            | rowLabel <- labels
+            ]
+        permutationMatrix move = transpose [vectorOf (move label) | label <- labels]
+        id8 = permutationMatrix id
+        targetQ0Flip = permutationMatrix (\(n, b) -> (n, not b))
+        controlQ1Flip = permutationMatrix (\(n, b) -> (n `xor` 2, b))
+        controlQ2Flip = permutationMatrix (\(n, b) -> (n `xor` 1, b))
+        basisDensity label =
+            let v = vectorOf label
+            in [[a * conjugate b | b <- v] | a <- v]
+
+        applySpamModelMix targetProb control1Prob control2Prob rho =
+            let rho1 = quantumChoiceMix targetQ0Flip id8 targetProb rho
+                rho2 = quantumChoiceMix controlQ1Flip id8 control1Prob rho1
+            in quantumChoiceMix controlQ2Flip id8 control2Prob rho2
+
+        formatComplex (r :+ i)
+            | abs i < 1e-9 = printf "%.6f" r
+            | otherwise = printf "%.6f%+.6fi" r i
+        formatRow row = intercalate "\t" (map formatComplex row)
+        labelText (n, b) = "(" ++ show n ++ "," ++ show b ++ ")"
+        labeledMatrixText title matrix = title ++ "\n" ++ unlines
+            (("\t" ++ intercalate "\t" (map labelText labels)) :
+            [ labelText label ++ "\t" ++ formatRow row
+            | (label, row) <- zip labels matrix
+            ])
+        matrixText title matrix = title ++ "\n" ++ unlines (map formatRow matrix)
+        models =
+            [ ("target_only", p, 0, 0)
+            , ("control_q1_only", 0, p, 0)
+            , ("control_q2_only", 0, 0, p)
+            , ("all_spam", p, p, p)
+            ]
+
+    columns <- mapM
+        (\(n, b) -> do
+            (_, outTarget) <- mqfor applyH (n, targetVector b)
+            return (vectorToBlock n outTarget)
+        )
+        labels
+
+    let hQforMatrix = transpose columns
+
+        rho0Label = (1, False)
+        rho0 = basisDensity rho0Label
+        cleanFinal = matMul (matMul hQforMatrix rho0) (dagger hQforMatrix)
+
+        modelReports =
+            [ let rhoWithSpam = applySpamModelMix targetProb control1Prob control2Prob rho0
+                  noisyFinal = matMul (matMul hQforMatrix rhoWithSpam) (dagger hQforMatrix)
+              in unlines
+                    [ "Model: " ++ name
+                        ++ " (target_p=" ++ show targetProb
+                        ++ ", control_q1_p=" ++ show control1Prob
+                        ++ ", control_q2_p=" ++ show control2Prob ++ ")"
+                    , labeledMatrixText "rho_0 after deterministic SPAM mixture:" rhoWithSpam
+                    , labeledMatrixText "Final density matrix H_qfor rho_spam H_qfor^dagger:" noisyFinal
+                    ]
+            | (name, targetProb, control1Prob, control2Prob) <- models
+            ]
+
+    let report = unlines
+            [ "Test 3b: qfor H matrix with deterministic SPAM mixture (quantumChoiceMix)"
+            , "rho' = p*(u' rho u'^dagger) + (1-p)*(u rho u^dagger), applied exactly (no sampling)."
+            , "Target qubit q0 is the Bool component in labels (n, Bool)."
+            , "Control qubits q1 and q2 are encoded by n in binary."
+            , "rho_0 label=" ++ labelText rho0Label
+            , "p_spam=" ++ show p
+            , ""
+            , labeledMatrixText "H_qfor matrix:" hQforMatrix
+            , matrixText "rho_0:" rho0
+            , matrixText "Final density matrix H_qfor rho_0 H_qfor^dagger (clean):" cleanFinal
+            , intercalate "\n" modelReports
+            ]
+        fname = "./data/out_test3b_qfor_h_deterministic.txt"
+
+    createDirectoryIfMissing True "./data"
+    writeFile fname report
+    putStr report
+    putStrLn $ "Test 3b results saved to " ++ fname
 
 --------------------------------------------------------------------------
 main :: IO()
@@ -793,8 +921,8 @@ main = do
         args <- getArgs
         case args of {
             ["test1", pStr, nStr] -> let p = read pStr; n = read nStr in test1 p excited_state_density n;
-            ["test2", pStr, nStr] -> let p = read pStr; n = read nStr in test2 p excited_state_density n;
-            ["test3", pStr, nStr] -> let p = read pStr; n = read nStr in test3 p excited_state_density n;
+            ["test2a", pStr, nStr] -> let p = read pStr; n = read nStr in test2a p excited_state_density n;
+            ["test2b", pStr, nStr] -> let p = read pStr; n = read nStr in test2b p excited_state_density n;
             ["runTest2Sweep", nStr, idStr, dpStr] -> let n = read nStr; dp = read dpStr :: Double in runTest2Sweep n idStr dp;
             ["test4a"] -> test4a;
             ["test4b"] -> test4b;
@@ -807,7 +935,8 @@ main = do
             ["test11"] -> test11;
             ["test12"] -> test12;
             ["test13"] -> test13;
-            ["test14"] -> test14;
-            _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2 <prob> <n>\n  test3 <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>\n  test4a\n  test4b\n  test5 [PhaseFlip|Reset]\n  test6\n  test7\n  test8\n  test9\n  test10\n  test11\n  test12\n  test13\n  test14"
+            ["test3a"] -> test3a;
+            ["test3b"] -> test3b;
+            _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2a <prob> <n>\n  test2b <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>\n  test3a\n  test3b\n  test4a\n  test4b\n  test5 [PhaseFlip|Reset]\n  test6\n  test7\n  test8\n  test9\n  test10\n  test11\n  test12\n  test13"
         }
 
