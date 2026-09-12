@@ -10,7 +10,7 @@ explored out of curiosity or needed to support related publications.
 * GHC and `cabal` (Haskell2010, tested with GHC 9.6.7)
 * BLAS/LAPACK development libraries (required by the `hmatrix` dependency)
 * Python 3.8+ with `pandas` and `matplotlib` for the analysis/plotting scripts in `data/`
-  (dependencies declared in [pyproject.toml](pyproject.toml); e.g. `uv run --with pandas --with matplotlib --no-project data/analyze_test5.py`)
+    (dependencies declared in [pyproject.toml](pyproject.toml); e.g. `uv run --with pandas --with matplotlib --no-project data/analyze_test5c.py`)
 
 ## Build
 
@@ -59,11 +59,21 @@ cabal run tests -- test1 0.05 20
     - same qfor H setup as test 3a, but uses the deterministic SPAM mixture `quantumChoiceMix`
     - applies the exact mixture instead of Monte Carlo sampling to inspect how the error spreads through the density matrix
     - writes the report to `data/out_test3b_qfor_h_deterministic.txt`
-* test 4 — `test4a` / `test4b`
+* test 4a — `test4a`
+    - qfor H circuit with post-gate depolarizing noise sampled by Monte Carlo
+    - writes the report to `data/out_test4a_qfor_h_depolarizing_mc.txt`
+* test 4b — `test4b`
+    - qfor H circuit with exact post-gate depolarizing noise using `Dist` and `collapse`
+    - writes the report to `data/out_test4b_qfor_h_depolarizing_exact.txt`
+* test 5a — `test5a`
     - quantamorphism with and without error correction to each qubit
     - should allows to see noise accumulation and that some error correction strategies are better than others
     - it is a **practical application of the combinator**
-* test 5 — `test5`
+* test 5b — `test5b`
+    - quantamorphism with and without error correction to each qubit
+    - should allows to see noise accumulation and that some error correction strategies are better than others
+    - it is a **practical application of the combinator**
+* test 5c — `test5c`
     - compares cases where qubit 0, 1, or 2 is assigned 10% of the other gates' error probability; the quantamorphism target remains qubit 0
     - combines independent reset-to-`|0>` and phase-flip (`Z`) errors: probability `p/2` each
     - uses four qubits, starts from `|1>|1>|1>|0>`, and does not use correction ancillas
@@ -76,17 +86,17 @@ since new tests/flags get added over time.
 
 Each test writes its raw output as CSV under [data/](data/). Python scripts in the same
 folder turn that raw output into the summary CSVs and comparison plots referenced above,
-e.g. for test 5:
+e.g. for test 5c:
 
 ```sh
-cabal run tests -- test5
-python data/analyze_test5.py
+cabal run tests -- test5c
+python data/analyze_test5c.py
 ```
 
-This reads `data/test5_raw_Combined_1110_*.csv` and produces `data/test5_clean.csv` and
-`data/test5_comparison.png`. Other tests follow the same raw-CSV-in, script-out pattern:
+This reads `data/test5c_raw_Combined_1110_*.csv` and produces `data/test5c_clean.csv` and
+`data/test5c_comparison.png`. Other tests follow the same raw-CSV-in, script-out pattern:
 [analyze_test2.py](data/analyze_test2.py), [analyze_test2_grid.py](data/analyze_test2_grid.py),
-and [analyze_test4_averages.py](data/analyze_test4_averages.py).
+and [analyze_test5_averages.py](data/analyze_test5_averages.py).
 
 ## License
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate Test 5 raw runs and save a comparison plot."""
+"""Aggregate Test 5c raw runs and save a comparison plot."""
 
 from pathlib import Path
 
@@ -8,13 +8,13 @@ import pandas as pd
 
 
 DATA_DIR = Path(__file__).parent
-RAW_PATTERN = "test5_raw_Combined_1110_*.csv"
+RAW_PATTERN = "test5c_raw_Combined_1110_*.csv"
 
 
 def main():
     raw_files = sorted(DATA_DIR.glob(RAW_PATTERN))
     if not raw_files:
-        raise SystemExit("No combined Test 5 |1110> raw CSV files found. Run the Haskell test first.")
+        raise SystemExit("No combined Test 5c |1110> raw CSV files found. Run the Haskell test first.")
 
     frames = []
     for path in raw_files:
@@ -39,7 +39,7 @@ def main():
         .sort_values(["noise_model", "probability", "low_error_qubit"])
     )
     grouped["std_fidelity"] = grouped["std_fidelity"].fillna(0.0)
-    clean_path = DATA_DIR / "test5_clean.csv"
+    clean_path = DATA_DIR / "test5c_clean.csv"
     grouped.to_csv(clean_path, index=False)
 
     fig, axis = plt.subplots(figsize=(8, 5))
@@ -60,9 +60,9 @@ def main():
     axis.set_ylim(0, 1.05)
     axis.grid(True, alpha=0.3)
     axis.legend()
-    fig.suptitle("Test 5: combined reset and Z noise")
+    fig.suptitle("Test 5c: combined reset and Z noise")
     fig.tight_layout()
-    plot_path = DATA_DIR / "test5_comparison.png"
+    plot_path = DATA_DIR / "test5c_comparison.png"
     fig.savefig(plot_path, dpi=300, bbox_inches="tight")
 
     print(f"Clean summary saved to {clean_path}")

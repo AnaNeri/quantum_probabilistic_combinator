@@ -8,6 +8,7 @@ import Distance
 import Quantamorphism
 import Noise
 import MQfor
+import qualified HCore as HC
 import Data.Complex
 import Control.Monad (foldM)
 import qualified Data.Map as Map
@@ -184,7 +185,7 @@ test2b p s n = do
         avgFid = sum fidelities / fromIntegral n
     putStrLn $ "Average fidelity with expected state: " ++ show avgFid
 
--- test 4 ----------------------------------------------------------------
+-- test 5a ----------------------------------------------------------------
 -- test quantamorphism with noise
 -- target qubit is qubit 0, the control qubits are qubit 1 and 2
 -- qubit 3 is an ancilla qubit.
@@ -192,16 +193,16 @@ test2b p s n = do
 -- noise probability of each gate has phase flip is 0.05%
 --------------------------------------------------------------------------
 
-test4a :: IO()
-test4a = do
-    putStrLn "Test 4: Quantummorphism with noise, without error correction"
+test5a :: IO()
+test5a = do
+    putStrLn "Test 5a: Quantummorphism with noise, without error correction"
     let p = 0.05
     let n_qubits = 6
     let s_n = extendToNQubits n_qubits projPlus
     -- Get current date/time for unique file id
     t <- getCurrentTime
     let timeStr = formatTime defaultTimeLocale "%Y%m%d%H%M%S" t
-        fname = "./data/out_test4a_" ++ show p ++ "_" ++ timeStr ++ ".csv"
+        fname = "./data/out_test5a_" ++ show p ++ "_" ++ timeStr ++ ".csv"
     createDirectoryIfMissing True "./data"
     -- initial state |+⟩|0⟩|0⟩|0⟩
     res_ideal <- quantamorphism_b0_n2 0 projPlus n_qubits (-1)
@@ -219,16 +220,16 @@ test4a = do
         return ()
     putStrLn $ "Fidelity results saved to " ++ fname
 
-test4b :: IO()
-test4b = do
-    putStrLn "Test 4b: Quantummorphism with noise and error correction"
+test5b :: IO()
+test5b = do
+    putStrLn "Test 5b: Quantummorphism with noise and error correction"
     let p = 0.05   
     let n_qubits = 6
     let s_n = extendToNQubits n_qubits projPlus
     -- Get current date/time for unique file id
     t <- getCurrentTime
     let timeStr = formatTime defaultTimeLocale "%Y%m%d%H%M%S" t
-        fname = "./data/out_test4b_" ++ show p ++ "_" ++ timeStr ++ ".csv"
+        fname = "./data/out_test5b_" ++ show p ++ "_" ++ timeStr ++ ".csv"
     createDirectoryIfMissing True "./data"
     putStrLn $ "Start ideal run"
     res_ideal <- quantamorphism_b0_n2 0 projPlus n_qubits 0
@@ -249,12 +250,12 @@ test4b = do
         return ()
     putStrLn $ "Fidelity results saved to " ++ fname
 
--- test 5 ----------------------------------------------------------------
+-- test 5c ----------------------------------------------------------------
 -- No correction ancillas are used. Initial state is |1>|1>|1>|0|.
 -- The measured target is qubit 0.
 --------------------------------------------------------------------------
-test5 :: IO ()
-test5 = do
+test5c :: IO ()
+test5c = do
     let probabilities = [0.0005, 0.005, 0.05]
         targetProbability p = p * 0.1
         n_qubits = 4
@@ -262,15 +263,15 @@ test5 = do
         initialState = excite_qubits [0,1,2] n_qubits
     t <- getCurrentTime
     let timeStr = formatTime defaultTimeLocale "%Y%m%d%H%M%S" t
-        fname = "./data/test5_raw_Combined_1110_" ++ timeStr ++ ".csv"
+        fname = "./data/test5c_raw_Combined_1110_" ++ timeStr ++ ".csv"
     createDirectoryIfMissing True "./data"
-    putStrLn "Test 5: combined reset/Z noise (p/2 reset, p/2 Z)"
+    putStrLn "Test 5c: combined reset/Z noise (p/2 reset, p/2 Z)"
     withFile fname WriteMode $ \h -> do
         hPutStrLn h "noise_model,probability,low_error_qubit,low_error_probability,trial,fidelity_target_qubit_0"
         mapM_ (\p -> mapM_ (\lowErrorQubit -> do
-            ideal <- quantamorphism_b0_n2_test5 0 0 Combined 0 initialState
+            ideal <- quantamorphism_b0_n2_test5c 0 0 Combined 0 initialState
             mapM_ (\trial -> do
-                result <- quantamorphism_b0_n2_test5 p (targetProbability p) Combined lowErrorQubit initialState
+                result <- quantamorphism_b0_n2_test5c p (targetProbability p) Combined lowErrorQubit initialState
                 let fidelity = fidelityQubits result ideal [0] n_qubits
                 hPutStrLn h $ intercalate "," [show Combined, show p, show lowErrorQubit,
                     show (targetProbability p), show trial, show fidelity]
@@ -674,7 +675,7 @@ test13 = do
 -- Builds the matrix for qfor H over labels (n, Bool), n=0..3, then applies
 -- it to a random density matrix rho_0. Finally, applies SPAM bit-flip noise
 -- to rho_0 with quantumChoice, runs the same circuit 100 times, and reports
--- the average infidelity from the clean final density matrix.
+-- the average distance from the clean final density matrix.
 --------------------------------------------------------------------------
 test3a :: IO ()
 test3a = do
@@ -741,10 +742,10 @@ test3a = do
             , ("control_q1_only", 0, p, 0)
             , ("control_q2_only", 0, 0, p)
             ]
-        modelHeader = "model\tfull_fidelity\ttarget_fidelity\tcontrol_fidelity\tfull_distance\ttarget_distance\tcontrol_distance"
-        modelRow (name, fullFid, targetFid, controlFid, fullDist, targetDist, controlDist) =
-            printf "%s\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f"
-                name fullFid targetFid controlFid fullDist targetDist controlDist
+        modelHeader = "model\tfull_fidelity\ttarget_fidelity\tcontrol_fidelity"
+        modelRow (name, fullFid, targetFid, controlFid) =
+            printf "%s\t%.6f\t%.6f\t%.6f"
+                name fullFid targetFid controlFid
 
     columns <- mapM
         (\(n, b) -> do
@@ -779,8 +780,7 @@ test3a = do
                     , sum controlFids / fromIntegral trials
                     )
                 (avgFull, avgTarget, avgControl) = avg (unzip3 measurements)
-            return (name, avgFull, avgTarget, avgControl,
-                1 - avgFull, 1 - avgTarget, 1 - avgControl)
+            return (name, avgFull, avgTarget, avgControl)
         | (name, targetProb, control1Prob, control2Prob) <- models
         ]
 
@@ -915,6 +915,223 @@ test3b = do
     putStr report
     putStrLn $ "Test 3b results saved to " ++ fname
 
+-- test 4a ----------------------------------------------------------------
+-- Same qfor H circuit as test3a/test3b, but instead of a single SPAM
+-- bit-flip applied once before the circuit, a full depolarizing channel
+-- (X, Y, Z with equal probability p/3 each) is applied after EVERY H gate
+-- firing (the qfor loop fires the gate n times, where n is the control
+-- register value). Only the target qubit (q0, the Bool component of the
+-- label) is affected by the noise; on a multi-qubit gate only its target
+-- would be hit (H here is single-qubit, so it is simply the target).
+-- Monte Carlo: mqfor with the IO-sampled per-gate depolarizing step,
+-- averaged over trials against the noiseless H_qfor result (average
+-- fidelity over trials, the same way test3a averages over quantumChoice
+-- trials).
+--------------------------------------------------------------------------
+test4a :: IO ()
+test4a = do
+    let maxN = 3
+        p = 0.1
+        trials = 100
+        labels = [(n, b) | n <- [0 .. maxN], b <- [False, True]]
+        zero = 0 :+ 0
+        one = 1 :+ 0
+
+        targetVector False = [one, zero]
+        targetVector True = [zero, one]
+
+        applyH target = do
+            let col = matMul h [[target !! 0], [target !! 1]]
+            return [head (col !! 0), head (col !! 1)]
+
+        vectorToBlock n target = concat
+            [ if n' == n then target else [zero, zero]
+            | n' <- [0 .. maxN]
+            ]
+
+        vectorOf label =
+            [ if rowLabel == label then one else zero
+            | rowLabel <- labels
+            ]
+        basisDensity label =
+            let v = vectorOf label
+            in [[a * conjugate b | b <- v] | a <- v]
+
+        -- H acting on the target qubit (index 2, LSB) tensored with Id on the two control qubits
+        hTargetGate = HC.fromHMatrix $ HC.tensorListFromLists [id_m, id_m, h]
+
+        targetReduced rho =
+            [ [sum [rho !! (2 * n + b) !! (2 * n + b') | n <- [0 .. maxN]]
+              | b' <- [0, 1] ]
+            | b <- [0, 1] ]
+        controlReduced rho =
+            [ [sum [rho !! (2 * n + b) !! (2 * n' + b) | b <- [0, 1]]
+              | n' <- [0 .. maxN] ]
+            | n <- [0 .. maxN] ]
+
+        formatComplex (r :+ i)
+            | abs i < 1e-9 = printf "%.6f" r
+            | otherwise = printf "%.6f%+.6fi" r i
+        formatRow row = intercalate "\t" (map formatComplex row)
+        labelText (n, b) = "(" ++ show n ++ "," ++ show b ++ ")"
+        labeledMatrixText title matrix = title ++ "\n" ++ unlines
+            (("\t" ++ intercalate "\t" (map labelText labels)) :
+            [ labelText label ++ "\t" ++ formatRow row
+            | (label, row) <- zip labels matrix
+            ])
+
+        models = [ ("n1_single_gate", 1), ("n2_two_gates", 2), ("n3_three_gates", 3) ]
+        modelHeader = "model\tn_gate_firings\tfull_fidelity\ttarget_fidelity\tcontrol_fidelity"
+        modelRow (name, n, fullFid, targetFid, controlFid) =
+            printf "%s\t%d\t%.6f\t%.6f\t%.6f"
+                name (n :: Int) fullFid targetFid controlFid
+
+    columns <- mapM
+        (\(n, b) -> do
+            (_, outTarget) <- mqfor applyH (n, targetVector b)
+            return (vectorToBlock n outTarget)
+        )
+        labels
+
+    let hQforMatrix = transpose columns
+
+    modelResultsAndMatrices <- sequence
+        [ do
+            let rho0 = basisDensity (n, False)
+                cleanFinal = matMul (matMul hQforMatrix rho0) (dagger hQforMatrix)
+            measurements <- sequence
+                [ do
+                    (_, noisyFinal) <- mqfor (stepWithGateIO hTargetGate [2] 3 p) (n, rho0)
+                    let fullFid = fidelity_density cleanFinal noisyFinal
+                        targetFid = fidelity_density (targetReduced cleanFinal) (targetReduced noisyFinal)
+                        controlFid = fidelity_density (controlReduced cleanFinal) (controlReduced noisyFinal)
+                    return (fullFid, targetFid, controlFid)
+                | _ <- [1 .. trials]
+                ]
+            let (fullFids, targetFids, controlFids) = unzip3 measurements
+                avgFull = sum fullFids / fromIntegral trials
+                avgTarget = sum targetFids / fromIntegral trials
+                avgControl = sum controlFids / fromIntegral trials
+                matricesText = unlines
+                    [ "Model: " ++ name ++ " (n_gate_firings=" ++ show n ++ ")"
+                    , labeledMatrixText "rho_0:" rho0
+                    , labeledMatrixText "Clean (noiseless) final density matrix:" cleanFinal
+                    ]
+            return ((name, n, avgFull, avgTarget, avgControl), matricesText)
+        | (name, n) <- models
+        ]
+    let (modelResults, modelMatrices) = unzip modelResultsAndMatrices
+
+    let report = unlines
+            [ "Test 4a: qfor H circuit with post-gate depolarizing noise (X,Y,Z equal prob p/3)"
+            , "applied after EVERY gate firing (Monte Carlo, mqfor IO sampling)."
+            , "Unlike test3a/test3b (SPAM applied once before the circuit), the noise here"
+            , "is injected after each of the n H-gate firings driven by the qfor loop, and"
+            , "only ever touches the gate's target qubit (H is single-qubit here, so that is"
+            , "simply the target qubit q0 each time)."
+            , "p=" ++ show p
+            , "trials=" ++ show trials
+            , ""
+            , labeledMatrixText "H_qfor matrix:" hQforMatrix
+            , intercalate "\n" modelMatrices
+            , unlines (modelHeader : map modelRow modelResults)
+            ]
+        fname = "./data/out_test4a_qfor_h_depolarizing_mc.txt"
+
+    createDirectoryIfMissing True "./data"
+    writeFile fname report
+    putStr report
+    putStrLn $ "Test 4a results saved to " ++ fname
+
+-- test 4b ----------------------------------------------------------------
+-- Same setup as test4a, but the post-gate depolarizing noise is combined
+-- exactly via the Dist monad (mqfor + collapse) instead of Monte Carlo
+-- sampling, mirroring how test3b replaces test3a's quantumChoice sampling
+-- with the deterministic quantumChoiceMix combinator. No trials are
+-- needed: collapse sums the exact weighted Kraus branches.
+--------------------------------------------------------------------------
+test4b :: IO ()
+test4b = do
+    let maxN = 3
+        p = 0.1
+        labels = [(n, b) | n <- [0 .. maxN], b <- [False, True]]
+        zero = 0 :+ 0
+        one = 1 :+ 0
+
+        targetVector False = [one, zero]
+        targetVector True = [zero, one]
+
+        applyH target = do
+            let col = matMul h [[target !! 0], [target !! 1]]
+            return [head (col !! 0), head (col !! 1)]
+
+        vectorToBlock n target = concat
+            [ if n' == n then target else [zero, zero]
+            | n' <- [0 .. maxN]
+            ]
+
+        vectorOf label =
+            [ if rowLabel == label then one else zero
+            | rowLabel <- labels
+            ]
+        basisDensity label =
+            let v = vectorOf label
+            in [[a * conjugate b | b <- v] | a <- v]
+
+        hTargetGate = HC.fromHMatrix $ HC.tensorListFromLists [id_m, id_m, h]
+
+        formatComplex (r :+ i)
+            | abs i < 1e-9 = printf "%.6f" r
+            | otherwise = printf "%.6f%+.6fi" r i
+        formatRow row = intercalate "\t" (map formatComplex row)
+        labelText (n, b) = "(" ++ show n ++ "," ++ show b ++ ")"
+        labeledMatrixText title matrix = title ++ "\n" ++ unlines
+            (("\t" ++ intercalate "\t" (map labelText labels)) :
+            [ labelText label ++ "\t" ++ formatRow row
+            | (label, row) <- zip labels matrix
+            ])
+
+        models = [ ("n1_single_gate", 1), ("n2_two_gates", 2), ("n3_three_gates", 3) ]
+
+    columns <- mapM
+        (\(n, b) -> do
+            (_, outTarget) <- mqfor applyH (n, targetVector b)
+            return (vectorToBlock n outTarget)
+        )
+        labels
+
+    let hQforMatrix = transpose columns
+
+        modelReports =
+            [ let rho0 = basisDensity (n, False)
+                  cleanFinal = matMul (matMul hQforMatrix rho0) (dagger hQforMatrix)
+                  exactDist = mqfor (stepWithGate hTargetGate [2] 3 p) (n, rho0)
+                  noisyFinal = collapse (fmap snd exactDist)
+                  fid = fidelity_density cleanFinal noisyFinal
+              in unlines
+                    [ "Model: " ++ name ++ " (n_gate_firings=" ++ show n ++ ", p=" ++ show p ++ ")"
+                    , labeledMatrixText "Final density matrix after n noisy H firings (exact):" noisyFinal
+                    , "fidelity_vs_ideal=" ++ show fid
+                    ]
+            | (name, n) <- models
+            ]
+
+    let report = unlines
+            [ "Test 4b: qfor H circuit with exact post-gate depolarizing noise (Dist/collapse)"
+            , "Same model as test4a but branches are enumerated exactly (no sampling):"
+            , "rho' = (1-p) rho + p/3 X rho X + p/3 Y rho Y + p/3 Z rho Z, applied after each"
+            , "of the n H-gate firings driven by the qfor loop; only the target qubit is hit."
+            , "p=" ++ show p
+            , ""
+            , intercalate "\n" modelReports
+            ]
+        fname = "./data/out_test4b_qfor_h_depolarizing_exact.txt"
+
+    createDirectoryIfMissing True "./data"
+    writeFile fname report
+    putStr report
+    putStrLn $ "Test 4b results saved to " ++ fname
+
 --------------------------------------------------------------------------
 main :: IO()
 main = do
@@ -924,9 +1141,9 @@ main = do
             ["test2a", pStr, nStr] -> let p = read pStr; n = read nStr in test2a p excited_state_density n;
             ["test2b", pStr, nStr] -> let p = read pStr; n = read nStr in test2b p excited_state_density n;
             ["runTest2Sweep", nStr, idStr, dpStr] -> let n = read nStr; dp = read dpStr :: Double in runTest2Sweep n idStr dp;
-            ["test4a"] -> test4a;
-            ["test4b"] -> test4b;
-            ["test5"] -> test5;
+            ["test5a"] -> test5a;
+            ["test5b"] -> test5b;
+            ["test5c"] -> test5c;
             ["test6"] -> test6;
             ["test7"] -> test7;
             ["test8"] -> test8;
@@ -937,6 +1154,8 @@ main = do
             ["test13"] -> test13;
             ["test3a"] -> test3a;
             ["test3b"] -> test3b;
-            _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2a <prob> <n>\n  test2b <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>\n  test3a\n  test3b\n  test4a\n  test4b\n  test5 [PhaseFlip|Reset]\n  test6\n  test7\n  test8\n  test9\n  test10\n  test11\n  test12\n  test13"
+            ["test4a"] -> test4a;
+            ["test4b"] -> test4b;
+            _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2a <prob> <n>\n  test2b <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>\n  test3a\n  test3b\n  test4a\n  test4b\n  test5a\n  test5b\n  test5c\n  test6\n  test7\n  test8\n  test9\n  test10\n  test11\n  test12\n  test13"
         }
 

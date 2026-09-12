@@ -36,8 +36,8 @@ Final density matrix H_qfor rho_0 H_qfor^dagger:
 0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000
 
 Isolated SPAM model comparison (100 trials):
-model	full_fidelity	target_fidelity	control_fidelity	full_distance	target_distance	control_distance
-target_only	0.880000	0.880000	1.000000	0.120000	0.120000	0.000000
-control_q1_only	0.940000	1.000000	0.940000	0.060000	0.000000	0.060000
-control_q2_only	0.890000	0.945000	0.890000	0.110000	0.055000	0.110000
+model	full_fidelity	target_fidelity	control_fidelity
+target_only	0.940000	0.940000	1.000000
+control_q1_only	0.890000	1.000000	0.890000
+control_q2_only	0.920000	0.960000	0.920000
 

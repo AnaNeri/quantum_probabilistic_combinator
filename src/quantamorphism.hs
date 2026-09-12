@@ -1,7 +1,7 @@
 module Quantamorphism (
     quantamorphism_b0_n2,
     quantamorphism_b0_n2_wcorrection,
-    quantamorphism_b0_n2_test5,
+    quantamorphism_b0_n2_test5c,
     NoiseModel(..)
 ) where
 
@@ -184,8 +184,8 @@ applyTest5Noise otherProb lowErrorProb noiseModel lowErrorQubit gate state qubit
                             else return rho
     foldM applyOne noisyState qubits
 
-quantamorphism_b0_n2_test5 :: Double -> Double -> NoiseModel -> Int -> [[Complex Double]] -> IO [[Complex Double]]
-quantamorphism_b0_n2_test5 otherProb lowErrorProb noiseModel lowErrorQubit state_i = do
+quantamorphism_b0_n2_test5c :: Double -> Double -> NoiseModel -> Int -> [[Complex Double]] -> IO [[Complex Double]]
+quantamorphism_b0_n2_test5c otherProb lowErrorProb noiseModel lowErrorQubit state_i = do
     let applyNoise gate state qubits =
             applyTest5Noise otherProb lowErrorProb noiseModel lowErrorQubit gate state qubits
         s_n_h = HC.toHMatrix state_i
