@@ -53,25 +53,29 @@ cabal run tests -- test1 0.05 20
     - check fidelity of the noisy X gate against the ideal expected state
 * test 3a — `test3a`
     - qfor H matrix with labels: Monte Carlo SPAM bit-flip model over the encoded basis states
-    - compares target-only vs control-only noise effects on the final density matrix using repeated sampling
+    - compares target-only vs control-only noise effects on the final density matrix using 100 repeated samples per model
     - writes the report to `data/out_test3a_qfor_h.txt`
 * test 3b — `test3b`
     - same qfor H setup as test 3a, but uses the deterministic SPAM mixture `quantumChoiceMix`
-    - applies the exact mixture instead of Monte Carlo sampling to inspect how the error spreads through the density matrix
+    - uses the monadic `quantumChoiceMix` implementation and `runIdentity` to apply the exact mixture without Monte Carlo sampling
     - writes the report to `data/out_test3b_qfor_h_deterministic.txt`
 * test 4a — `test4a`
-    - qfor H circuit with post-gate depolarizing noise sampled by Monte Carlo
+    - qfor H circuit with target-only post-gate depolarizing noise sampled by Monte Carlo after every H firing
+    - uses 100 trials for each of `n=1`, `n=2`, and `n=3` gate firings
     - writes the report to `data/out_test4a_qfor_h_depolarizing_mc.txt`
 * test 4b — `test4b`
-    - qfor H circuit with exact post-gate depolarizing noise using `Dist` and `collapse`
+    - qfor H circuit with exact post-gate depolarizing noise using monadic `quantumChoiceMix`
+    - implements the nested channel `((Z_(1/2) Diamond Y)_(2/3) Diamond X)_p Diamond I`
+    - gives probability `p/3` to each of `X`, `Y`, and `Z`, and probability `1-p` to `I`
+    - for `p=0.1`, the exact fidelities for `n=1`, `n=2`, and `n=3` are approximately `0.9333`, `0.8756`, and `0.8255`
     - writes the report to `data/out_test4b_qfor_h_depolarizing_exact.txt`
 * test 5a — `test5a`
-    - quantamorphism with and without error correction to each qubit
-    - should allows to see noise accumulation and that some error correction strategies are better than others
+    - noisy quantamorphism without error correction, using `p=0.05`, six qubits, and 100 executions
+    - records the fidelity of each noisy execution against the ideal result
     - it is a **practical application of the combinator**
 * test 5b — `test5b`
-    - quantamorphism with and without error correction to each qubit
-    - should allows to see noise accumulation and that some error correction strategies are better than others
+    - noisy quantamorphism with error correction, using `p=0.05` and 100 executions
+    - records both full-state fidelity and target-qubit fidelity
     - it is a **practical application of the combinator**
 * test 5c — `test5c`
     - compares cases where qubit 0, 1, or 2 is assigned 10% of the other gates' error probability; the quantamorphism target remains qubit 0
@@ -84,9 +88,10 @@ since new tests/flags get added over time.
 
 ## Data & analysis
 
-Each test writes its raw output as CSV under [data/](data/). Python scripts in the same
-folder turn that raw output into the summary CSVs and comparison plots referenced above,
-e.g. for test 5c:
+Tests 3 and 4 write their reports as text files under [data/](data/), while tests
+that perform parameter sweeps or repeated raw measurements write CSV files. Python
+scripts in the same folder turn selected raw CSV output into summary CSVs and
+comparison plots, e.g. for test 5c:
 
 ```sh
 cabal run tests -- test5c
