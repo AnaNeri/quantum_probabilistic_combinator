@@ -1,3 +1,0 @@
-circuit,num_two_qubit_gates,tg_ns,t1_ns,t2_ns,trials,fidelity_exact_vs_ideal,fidelity_mc_vs_ideal
-decomposed_6cx,6,40.0,50000.0,70000.0,1000,0.9921484663559988,0.9894999999999996
-atomic_ccx,1,300.0,50000.0,70000.0,1000,0.9821610323583007,0.983
