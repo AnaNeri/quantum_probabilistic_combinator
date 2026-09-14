@@ -1,7 +1,6 @@
-Test 4b: qfor H circuit with exact post-gate depolarizing noise (Dist/collapse)
-Same model as test4a but branches are enumerated exactly (no sampling):
-rho' = (1-p) rho + p/3 X rho X + p/3 Y rho Y + p/3 Z rho Z, applied after each
-of the n H-gate firings driven by the qfor loop; only the target qubit is hit.
+Test 4b: qfor H circuit with exact post-gate depolarizing noise (quantumChoiceMix)
+Depolarizing channel encoded as ((Z_(1/2) Diamond Y)_(2/3) Diamond X)_p Diamond I,
+applied after each H-gate firing driven by the qfor loop.
 p=0.1
 
 Model: n1_single_gate (n_gate_firings=1, p=0.1)
@@ -30,7 +29,7 @@ Final density matrix after n noisy H firings (exact):
 (3,False)	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000
 (3,True)	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000
 
-fidelity_vs_ideal=0.8755555555555548
+fidelity_vs_ideal=0.875555555555555
 
 Model: n3_three_gates (n_gate_firings=3, p=0.1)
 Final density matrix after n noisy H firings (exact):
@@ -44,5 +43,5 @@ Final density matrix after n noisy H firings (exact):
 (3,False)	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.500000	0.325481
 (3,True)	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.325481	0.500000
 
-fidelity_vs_ideal=0.825481481481481
+fidelity_vs_ideal=0.8254814814814807
 

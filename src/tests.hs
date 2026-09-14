@@ -19,6 +19,7 @@ import System.Environment (getArgs)
 import Data.Time (getCurrentTime, formatTime, defaultTimeLocale)
 import Data.List (intercalate, transpose)
 import Data.Bits (xor)
+import Data.Functor.Identity (runIdentity)
 
 -- matrices 
 runMatrixTests :: IO ()
@@ -846,9 +847,9 @@ test3b = do
             in [[a * conjugate b | b <- v] | a <- v]
 
         applySpamModelMix targetProb control1Prob control2Prob rho =
-            let rho1 = quantumChoiceMix targetQ0Flip id8 targetProb rho
-                rho2 = quantumChoiceMix controlQ1Flip id8 control1Prob rho1
-            in quantumChoiceMix controlQ2Flip id8 control2Prob rho2
+            let rho1 = runIdentity (quantumChoiceMix targetQ0Flip id8 targetProb rho)
+                rho2 = runIdentity (quantumChoiceMix controlQ1Flip id8 control1Prob rho1)
+            in runIdentity (quantumChoiceMix controlQ2Flip id8 control2Prob rho2)
 
         formatComplex (r :+ i)
             | abs i < 1e-9 = printf "%.6f" r
@@ -959,6 +960,16 @@ test4a = do
 
         -- H acting on the target qubit (index 2, LSB) tensored with Id on the two control qubits
         hTargetGate = HC.fromHMatrix $ HC.tensorListFromLists [id_m, id_m, h]
+        idTargetGate = HC.fromHMatrix $ HC.tensorListFromLists [id_m, id_m, id_m]
+        xTargetGate = HC.fromHMatrix $ HC.tensorListFromLists [id_m, id_m, x]
+        yTargetGate = HC.fromHMatrix $ HC.tensorListFromLists [id_m, id_m, y]
+        zTargetGate = HC.fromHMatrix $ HC.tensorListFromLists [id_m, id_m, z]
+
+        stepWithQuantumChoice rho = do
+            let afterGate = matMul (matMul hTargetGate rho) (dagger hTargetGate)
+            afterX <- quantumChoice xTargetGate idTargetGate (p / 3) afterGate
+            afterY <- quantumChoice yTargetGate idTargetGate (p / 3) afterX
+            quantumChoice zTargetGate idTargetGate (p / 3) afterY
 
         targetReduced rho =
             [ [sum [rho !! (2 * n + b) !! (2 * n + b') | n <- [0 .. maxN]]
@@ -1001,7 +1012,7 @@ test4a = do
                 cleanFinal = matMul (matMul hQforMatrix rho0) (dagger hQforMatrix)
             measurements <- sequence
                 [ do
-                    (_, noisyFinal) <- mqfor (stepWithGateIO hTargetGate [2] 3 p) (n, rho0)
+                    (_, noisyFinal) <- mqfor stepWithQuantumChoice (n, rho0)
                     let fullFid = fidelity_density cleanFinal noisyFinal
                         targetFid = fidelity_density (targetReduced cleanFinal) (targetReduced noisyFinal)
                         controlFid = fidelity_density (controlReduced cleanFinal) (controlReduced noisyFinal)
@@ -1045,10 +1056,9 @@ test4a = do
 
 -- test 4b ----------------------------------------------------------------
 -- Same setup as test4a, but the post-gate depolarizing noise is combined
--- exactly via the Dist monad (mqfor + collapse) instead of Monte Carlo
--- sampling, mirroring how test3b replaces test3a's quantumChoice sampling
--- with the deterministic quantumChoiceMix combinator. No trials are
--- needed: collapse sums the exact weighted Kraus branches.
+-- exactly with the quantumChoiceMix implementation of the dissertation's
+-- nested ((Z_(1/2) Diamond Y)_(2/3) Diamond X)_p Diamond I model.
+-- No trials are needed because quantumChoiceMix returns the mixed density matrix.
 --------------------------------------------------------------------------
 test4b :: IO ()
 test4b = do
@@ -1079,6 +1089,23 @@ test4b = do
             in [[a * conjugate b | b <- v] | a <- v]
 
         hTargetGate = HC.fromHMatrix $ HC.tensorListFromLists [id_m, id_m, h]
+        idTargetGate = HC.fromHMatrix $ HC.tensorListFromLists [id_m, id_m, id_m]
+        xTargetGate = HC.fromHMatrix $ HC.tensorListFromLists [id_m, id_m, x]
+        yTargetGate = HC.fromHMatrix $ HC.tensorListFromLists [id_m, id_m, y]
+        zTargetGate = HC.fromHMatrix $ HC.tensorListFromLists [id_m, id_m, z]
+
+        stepWithQuantumChoiceMix rho =
+            let afterGate = matMul (matMul hTargetGate rho) (dagger hTargetGate)
+                zyChoice = runIdentity
+                    (quantumChoiceMix zTargetGate yTargetGate (1 / 2) afterGate)
+                xChoice = runIdentity
+                    (quantumChoiceMix xTargetGate idTargetGate 1 afterGate)
+                noisyChoice = matAdd
+                    (scalarMul (2 / 3) zyChoice)
+                    (scalarMul (1 / 3) xChoice)
+            in matAdd
+                (scalarMul p noisyChoice)
+                (scalarMul (1 - p) afterGate)
 
         formatComplex (r :+ i)
             | abs i < 1e-9 = printf "%.6f" r
@@ -1105,8 +1132,7 @@ test4b = do
         modelReports =
             [ let rho0 = basisDensity (n, False)
                   cleanFinal = matMul (matMul hQforMatrix rho0) (dagger hQforMatrix)
-                  exactDist = mqfor (stepWithGate hTargetGate [2] 3 p) (n, rho0)
-                  noisyFinal = collapse (fmap snd exactDist)
+                  (_, noisyFinal) = qfor stepWithQuantumChoiceMix (n, rho0)
                   fid = fidelity_density cleanFinal noisyFinal
               in unlines
                     [ "Model: " ++ name ++ " (n_gate_firings=" ++ show n ++ ", p=" ++ show p ++ ")"
@@ -1117,10 +1143,9 @@ test4b = do
             ]
 
     let report = unlines
-            [ "Test 4b: qfor H circuit with exact post-gate depolarizing noise (Dist/collapse)"
-            , "Same model as test4a but branches are enumerated exactly (no sampling):"
-            , "rho' = (1-p) rho + p/3 X rho X + p/3 Y rho Y + p/3 Z rho Z, applied after each"
-            , "of the n H-gate firings driven by the qfor loop; only the target qubit is hit."
+            [ "Test 4b: qfor H circuit with exact post-gate depolarizing noise (quantumChoiceMix)"
+            , "Depolarizing channel encoded as ((Z_(1/2) Diamond Y)_(2/3) Diamond X)_p Diamond I,"
+            , "applied after each H-gate firing driven by the qfor loop."
             , "p=" ++ show p
             , ""
             , intercalate "\n" modelReports
@@ -1141,6 +1166,10 @@ main = do
             ["test2a", pStr, nStr] -> let p = read pStr; n = read nStr in test2a p excited_state_density n;
             ["test2b", pStr, nStr] -> let p = read pStr; n = read nStr in test2b p excited_state_density n;
             ["runTest2Sweep", nStr, idStr, dpStr] -> let n = read nStr; dp = read dpStr :: Double in runTest2Sweep n idStr dp;
+            ["test3a"] -> test3a;
+            ["test3b"] -> test3b;
+            ["test4a"] -> test4a;
+            ["test4b"] -> test4b;
             ["test5a"] -> test5a;
             ["test5b"] -> test5b;
             ["test5c"] -> test5c;
@@ -1152,10 +1181,5 @@ main = do
             ["test11"] -> test11;
             ["test12"] -> test12;
             ["test13"] -> test13;
-            ["test3a"] -> test3a;
-            ["test3b"] -> test3b;
-            ["test4a"] -> test4a;
-            ["test4b"] -> test4b;
             _ -> putStrLn "Usage:\n  test1 <prob> <n>\n  test2a <prob> <n>\n  test2b <prob> <n>\n  runTest2Sweep <nTest> <idOfTest> <probabilityDecrease>\n  test3a\n  test3b\n  test4a\n  test4b\n  test5a\n  test5b\n  test5c\n  test6\n  test7\n  test8\n  test9\n  test10\n  test11\n  test12\n  test13"
         }
-

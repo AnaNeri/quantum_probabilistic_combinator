@@ -33,10 +33,10 @@ quantumChoice u' u p v = do
         else return term1
 
 -- Deterministic quantum mixture: p*(u' v u'^dagger) + (1-p)*(u v u^dagger)
-quantumChoiceMix :: Matrix -> Matrix -> Double -> Matrix -> Matrix
+quantumChoiceMix :: Monad m => Matrix -> Matrix -> Double -> Matrix -> m Matrix
 quantumChoiceMix u' u p v =
-    matAdd (scalarMul p (matMul (matMul u' v) (dagger u')))
-           (scalarMul (1 - p) (matMul (matMul u v) (dagger u)))
+    return $ matAdd (scalarMul p (matMul (matMul u' v) (dagger u')))
+                    (scalarMul (1 - p) (matMul (matMul u v) (dagger u)))
 
 -- Example functions classic
 addOne :: Int -> Int
